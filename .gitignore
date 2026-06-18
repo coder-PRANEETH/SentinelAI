@@ -31,3 +31,7 @@ pnpm-debug.log*
 .idea/
 .vscode/
 *.swp
+
+# ML outputs
+dataset_processed
+catboost_info
