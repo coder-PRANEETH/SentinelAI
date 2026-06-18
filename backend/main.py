@@ -1,5 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
-from models import IncidentRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from models import IncidentRequest, InteractiveVoiceSessionRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
 from services.extraction_service import extract_incident_fields
 from services.llm_extraction_service import extract_incident_fields_llm
 from services.openai_extraction_service import extract_incident_fields_openai
@@ -11,9 +11,13 @@ from services.summary_service import generate_incident_summary
 from services.stt_service import transcribe_audio_file
 from services.module_dispatch_service import dispatch_incident_to_modules
 from services.chat_service import answer_incident_question
+from services.interactive_call_service import process_interactive_voice_turn
 import os
 import shutil
+import json
+import uuid
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 import logging
 
@@ -243,7 +247,7 @@ async def voice_report_audio(audio: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="No audio file provided")
         
         # Validate file format (accept common audio formats)
-        allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac"}
+        allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".webm", ".mp4"}
         file_extension = os.path.splitext(audio.filename)[1].lower()
         if file_extension not in allowed_extensions:
             raise HTTPException(
@@ -319,3 +323,92 @@ async def voice_report_audio(audio: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@app.post("/interactive-voice-turn")
+def interactive_voice_turn(request: InteractiveVoiceSessionRequest):
+    transcript = request.transcript.strip()
+    result = process_interactive_voice_turn(transcript, request.current_incident)
+    return {
+        "success": True,
+        "session_id": request.session_id,
+        **result,
+    }
+
+
+@app.post("/interactive-voice-audio-turn")
+async def interactive_voice_audio_turn(
+    audio: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+    current_incident_json: Optional[str] = Form(None),
+):
+    """
+    Process one phone-call style voice turn from browser-recorded audio.
+    """
+    temp_file_path = None
+
+    try:
+        if not audio or not audio.filename:
+            raise HTTPException(status_code=400, detail="No audio file provided")
+
+        allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".webm", ".mp4"}
+        file_extension = os.path.splitext(audio.filename)[1].lower() or ".webm"
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported audio format: {file_extension}. Allowed: {', '.join(allowed_extensions)}"
+            )
+
+        current_incident = None
+        if current_incident_json:
+            try:
+                current_incident = json.loads(current_incident_json)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="current_incident_json must be valid JSON")
+
+        safe_filename = f"interactive-{uuid.uuid4().hex}{file_extension}"
+        temp_file_path = os.path.join(TEMP_UPLOADS_DIR, safe_filename)
+        try:
+            with open(temp_file_path, "wb") as buffer:
+                contents = await audio.read()
+                buffer.write(contents)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save upload: {str(e)}")
+
+        try:
+            transcript = transcribe_audio_file(temp_file_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+
+        if not transcript or not transcript.strip():
+            return {
+                "success": True,
+                "complete": False,
+                "transcript": "",
+                "next_question": "I could not hear that clearly. Please repeat the incident.",
+                "current_incident": current_incident or {},
+                "error": "empty_transcript",
+            }
+
+        try:
+            result = process_interactive_voice_turn(transcript, current_incident)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to process interactive voice turn: {str(e)}")
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "transcript": transcript,
+            **result,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass

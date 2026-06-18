@@ -129,6 +129,239 @@ input:focus {
   cursor: not-allowed;
 }
 
+.secondary-button,
+.ghost-button {
+  margin-top: 14px;
+  padding: 14px 20px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.secondary-button {
+  background: #0f766e;
+  border: none;
+  color: white;
+}
+
+.secondary-button:hover {
+  background: #115e59;
+  transform: translateY(-1px);
+}
+
+.ghost-button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+}
+
+.ghost-button:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.secondary-button:disabled,
+.ghost-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.call-panel {
+  background: #fbfcfe;
+}
+
+.call-header,
+.call-actions,
+.call-layout {
+  display: flex;
+  gap: 14px;
+}
+
+.call-header {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.call-header h2 {
+  margin-bottom: 8px;
+}
+
+.call-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.call-status.listening {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.call-status.ai-speaking {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.call-status.processing {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.call-status.complete {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.call-pulse {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #22c55e 0 28%, #bbf7d0 30% 48%, #e0f2fe 50% 100%);
+  border: 1px solid #bae6fd;
+}
+
+.ai-question {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.ai-question-header {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.ai-question strong,
+.conversation-log > strong,
+.collected-fields > strong {
+  display: block;
+  color: #1e3a8a;
+}
+
+.ai-voice-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.voice-toggle {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.voice-toggle input {
+  accent-color: #0f766e;
+  cursor: pointer;
+  height: 18px;
+  padding: 0;
+  width: 18px;
+}
+
+.replay-button {
+  background: #ffffff;
+  border: 1px solid #93c5fd;
+  border-radius: 14px;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.replay-button:hover {
+  background: #dbeafe;
+}
+
+.replay-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ai-question p {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 1.05rem;
+}
+
+.call-actions {
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.call-layout {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  margin-top: 18px;
+}
+
+.conversation-log,
+.collected-fields {
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.message {
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  line-height: 1.5;
+}
+
+.message span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.message p {
+  margin: 0;
+}
+
+.message.caller {
+  background: #f1f5f9;
+}
+
+.message.ai {
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+}
+
+.field-list {
+  display: grid;
+  gap: 12px;
+}
+
+.field-list .dashboard-item {
+  padding: 14px;
+  border-radius: 14px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -238,5 +471,23 @@ input:focus {
 @media (max-width: 720px) {
   .page-shell {
     padding: 20px 16px 32px;
+  }
+
+  .call-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .ai-question-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ai-voice-controls {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .call-actions button {
+    width: 100%;
   }
 }

@@ -6,6 +6,12 @@ class IncidentRequest(BaseModel):
     transcript: str
 
 
+class InteractiveVoiceSessionRequest(BaseModel):
+    session_id: Optional[str] = None
+    transcript: str
+    current_incident: Optional[dict] = None
+
+
 class ExtractedIncident(BaseModel):
     event_type: Optional[str] = None
     vehicle_type: Optional[str] = None

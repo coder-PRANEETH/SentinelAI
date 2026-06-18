@@ -7,7 +7,9 @@ export default defineConfig({
     proxy: {
       '/report-incident': 'http://127.0.0.1:8000',
       '/incident-chat': 'http://127.0.0.1:8000',
-      '/voice-report-audio': 'http://127.0.0.1:8000'
+      '/voice-report-audio': 'http://127.0.0.1:8000',
+      '/interactive-voice-turn': 'http://127.0.0.1:8000',
+      '/interactive-voice-audio-turn': 'http://127.0.0.1:8000'
     }
   }
 })
