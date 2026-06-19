@@ -211,6 +211,11 @@ input:focus {
   color: #5b21b6;
 }
 
+.call-status.waiting-for-answer {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
 .call-status.processing {
   background: #fef3c7;
   color: #92400e;
@@ -219,6 +224,11 @@ input:focus {
 .call-status.complete {
   background: #d1fae5;
   color: #065f46;
+}
+
+.call-status.ended {
+  background: #e5e7eb;
+  color: #374151;
 }
 
 .call-pulse {
@@ -301,6 +311,12 @@ input:focus {
   margin: 0;
   line-height: 1.6;
   font-size: 1.05rem;
+}
+
+.ai-question .recording-hint {
+  color: #166534;
+  font-weight: 800;
+  margin-top: 10px;
 }
 
 .call-actions {

@@ -3,7 +3,8 @@ import { useRef, useState } from 'react'
 const API_BASE = ''
 const FIRST_CALL_QUESTION = 'Please describe the traffic incident.'
 const COMPLETE_MESSAGE = 'Incident details are complete. The incident has been created and dispatched.'
-const UNCLEAR_MESSAGE = 'I could not hear that clearly. Please repeat.'
+const UNCLEAR_MESSAGE = 'I could not hear that clearly. Please click Speak Answer and repeat.'
+const RECORDING_SECONDS = 5
 
 function App() {
   const [transcript, setTranscript] = useState('')
@@ -24,8 +25,14 @@ function App() {
   const [callIncident, setCallIncident] = useState({})
   const [aiVoiceEnabled, setAiVoiceEnabled] = useState(true)
   const [isAiSpeaking, setIsAiSpeaking] = useState(false)
+  const [recordingSecondsLeft, setRecordingSecondsLeft] = useState(0)
 
-  const recognitionRef = useRef(null)
+  const mediaRecorderRef = useRef(null)
+  const mediaStreamRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
+  const countdownTimerRef = useRef(null)
+  const shouldProcessRecordingRef = useRef(false)
   const callActiveRef = useRef(false)
   const callCompleteRef = useRef(false)
   const callIncidentRef = useRef({})
@@ -106,8 +113,10 @@ function App() {
 
     if (!aiVoiceEnabled || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
       setIsAiSpeaking(false)
-      if (listenAfter && callActiveRef.current && !callCompleteRef.current) {
-        startListening()
+      if (callCompleteRef.current) {
+        setCallStatus('Complete')
+      } else if (listenAfter && callActiveRef.current) {
+        setCallStatus('Waiting for answer')
       }
       return
     }
@@ -130,18 +139,16 @@ function App() {
       setIsAiSpeaking(false)
       if (callCompleteRef.current) {
         setCallStatus('Complete')
-      }
-      if (listenAfter && callActiveRef.current && !callCompleteRef.current) {
-        startListening()
+      } else if (listenAfter && callActiveRef.current) {
+        setCallStatus('Waiting for answer')
       }
     }
     utterance.onerror = () => {
       setIsAiSpeaking(false)
       if (callCompleteRef.current) {
         setCallStatus('Complete')
-      }
-      if (listenAfter && callActiveRef.current && !callCompleteRef.current) {
-        startListening()
+      } else if (listenAfter && callActiveRef.current) {
+        setCallStatus('Waiting for answer')
       }
     }
 
@@ -151,14 +158,6 @@ function App() {
   }
 
   const handleStartCall = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      setCallError('Live call mode is not supported in this browser. Use Chrome for best results.')
-      setCallStatus('Ready')
-      return
-    }
-
     const sessionId = sessionIdRef.current || callSessionId || createSessionId()
     sessionIdRef.current = sessionId
     setCallSessionId(sessionId)
@@ -171,83 +170,90 @@ function App() {
     speakAIQuestion(FIRST_CALL_QUESTION)
   }
 
-  const startListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      setCallError('Live call mode is not supported in this browser. Use Chrome for best results.')
-      setCallStatus('Ready')
-      return
-    }
-    if (!callActiveRef.current || callCompleteRef.current) {
+  const handleSpeakAnswer = async () => {
+    if (!callActiveRef.current || callCompleteRef.current || isAiSpeaking || callStatus === 'Processing') {
       return
     }
 
-    stopRecognition()
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setCallError('Audio recording is not supported in this browser.')
+      setCallStatus('Waiting for answer')
+      return
+    }
 
-    const recognition = new SpeechRecognition()
-    let heardSpeech = false
+    try {
+      stopAudioRecording(false)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = getSupportedAudioMimeType()
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
 
-    recognition.lang = 'en-IN'
-    recognition.interimResults = false
-    recognition.continuous = false
-    recognition.maxAlternatives = 1
+      mediaStreamRef.current = stream
+      mediaRecorderRef.current = recorder
+      audioChunksRef.current = []
+      shouldProcessRecordingRef.current = true
 
-    recognition.onstart = () => {
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        const chunks = audioChunksRef.current
+        const recordingType = recorder.mimeType || mimeType || 'audio/webm'
+        cleanupRecording()
+
+        if (!shouldProcessRecordingRef.current) {
+          return
+        }
+
+        const audioBlob = new Blob(chunks, { type: recordingType })
+        if (!audioBlob.size) {
+          handleEmptyAudioTurn()
+          return
+        }
+
+        processRecordedAudio(audioBlob)
+      }
+
+      setRecordingSecondsLeft(RECORDING_SECONDS)
       setCallStatus('Listening')
       setCallError('')
-    }
+      setCallQuestion(`Listening... speak now (${RECORDING_SECONDS}s)`)
 
-    recognition.onresult = (event) => {
-      const result = event.results?.[0]?.[0]?.transcript || ''
-      const spokenText = result.trim()
-      heardSpeech = Boolean(spokenText)
+      recorder.start()
 
-      if (spokenText) {
-        recognition.stop()
-        processRecognizedTranscript(spokenText)
-      }
-    }
-
-    recognition.onerror = () => {
-      heardSpeech = false
-    }
-
-    recognition.onend = () => {
-      recognitionRef.current = null
-      if (!callActiveRef.current || callCompleteRef.current || heardSpeech) {
-        return
-      }
-
-      setCallQuestion(UNCLEAR_MESSAGE)
-      setCallConversation((items) => [...items, { speaker: 'AI', text: UNCLEAR_MESSAGE }])
-      speakAIQuestion(UNCLEAR_MESSAGE)
-    }
-
-    recognitionRef.current = recognition
-    try {
-      recognition.start()
+      countdownTimerRef.current = window.setInterval(() => {
+        setRecordingSecondsLeft((seconds) => {
+          const nextSeconds = Math.max(seconds - 1, 0)
+          setCallQuestion(nextSeconds > 0 ? `Listening... speak now (${nextSeconds}s)` : 'Processing...')
+          return nextSeconds
+        })
+      }, 1000)
+      recordingTimerRef.current = window.setTimeout(() => {
+        stopAudioRecording(true)
+      }, RECORDING_SECONDS * 1000)
     } catch (error) {
-      recognitionRef.current = null
-      setCallStatus('Ready')
-      setCallError(error.message || 'Could not start live listening. Please try again.')
+      cleanupRecording()
+      setCallStatus('Waiting for answer')
+      setCallError(error.message || 'Could not access the microphone. Please allow microphone access and try again.')
     }
   }
 
-  const processRecognizedTranscript = async (spokenText) => {
+  const processRecordedAudio = async (audioBlob) => {
     setCallStatus('Processing')
     setCallError('')
-    setCallConversation((items) => [...items, { speaker: 'Caller', text: spokenText }])
+    setCallQuestion('Processing...')
+
+    const formData = new FormData()
+    formData.append('audio', audioBlob, 'interactive-answer.webm')
+    formData.append('session_id', sessionIdRef.current || callSessionId)
+    formData.append('current_incident_json', JSON.stringify(callIncidentRef.current || {}))
 
     try {
-      const response = await fetch(`${API_BASE}/interactive-voice-turn`, {
+      const response = await fetch(`${API_BASE}/interactive-voice-audio-turn`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionIdRef.current || callSessionId,
-          transcript: spokenText,
-          current_incident: callIncidentRef.current || {}
-        })
+        body: formData
       })
 
       if (!response.ok) {
@@ -256,6 +262,15 @@ function App() {
       }
 
       const data = await response.json()
+      const callerTranscript = data.transcript?.trim()
+
+      if (!callerTranscript) {
+        handleEmptyAudioTurn(data.current_incident)
+        return
+      }
+
+      setCallConversation((items) => [...items, { speaker: 'Caller', text: callerTranscript }])
+
       const updatedIncident = data.current_incident || {}
       callIncidentRef.current = updatedIncident
       setCallIncident(updatedIncident)
@@ -288,10 +303,22 @@ function App() {
     }
   }
 
+  const handleEmptyAudioTurn = (currentIncident = callIncidentRef.current || {}) => {
+    callIncidentRef.current = currentIncident || {}
+    setCallIncident(currentIncident || {})
+    setCallQuestion(UNCLEAR_MESSAGE)
+    setCallConversation((items) => [
+      ...items,
+      { speaker: 'Caller', text: 'No clear speech detected' },
+      { speaker: 'AI', text: UNCLEAR_MESSAGE }
+    ])
+    speakAIQuestion(UNCLEAR_MESSAGE)
+  }
+
   const handleEndCall = () => {
     callActiveRef.current = false
     setCallActive(false)
-    stopRecognition()
+    stopAudioRecording(false)
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
@@ -304,7 +331,7 @@ function App() {
     callCompleteRef.current = false
     callIncidentRef.current = {}
     sessionIdRef.current = ''
-    stopRecognition()
+    stopAudioRecording(false)
     if (window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
@@ -316,25 +343,48 @@ function App() {
     setCallConversation([])
     setCallIncident({})
     setIsAiSpeaking(false)
+    setRecordingSecondsLeft(0)
     setIncident(null)
     setModuleDispatch(null)
     setChatAnswer('')
     setChatError('')
   }
 
-  const stopRecognition = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.onend = null
-      recognitionRef.current.onerror = null
-      recognitionRef.current.onresult = null
-      try {
-        recognitionRef.current.stop()
-      } catch {
-        recognitionRef.current.abort()
-      }
-      recognitionRef.current = null
+  const stopAudioRecording = (shouldProcess) => {
+    shouldProcessRecordingRef.current = shouldProcess
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    } else {
+      cleanupRecording()
     }
   }
+
+  const cleanupRecording = () => {
+    if (recordingTimerRef.current) {
+      window.clearTimeout(recordingTimerRef.current)
+      recordingTimerRef.current = null
+    }
+    if (countdownTimerRef.current) {
+      window.clearInterval(countdownTimerRef.current)
+      countdownTimerRef.current = null
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      mediaStreamRef.current = null
+    }
+    mediaRecorderRef.current = null
+    audioChunksRef.current = []
+    setRecordingSecondsLeft(0)
+  }
+
+  const speakAnswerDisabled =
+    !callActive ||
+    callCompleteRef.current ||
+    isAiSpeaking ||
+    callStatus === 'AI Speaking' ||
+    callStatus === 'Listening' ||
+    callStatus === 'Processing' ||
+    callStatus === 'Complete'
 
   return (
     <div className="page-shell">
@@ -386,7 +436,7 @@ function App() {
                         window.speechSynthesis.cancel()
                         setIsAiSpeaking(false)
                         if (callActiveRef.current && !callCompleteRef.current) {
-                          startListening()
+                          setCallStatus('Waiting for answer')
                         }
                       }
                     }}
@@ -396,11 +446,19 @@ function App() {
               </div>
             </div>
             <p>{callQuestion || 'Press Start Call to begin.'}</p>
+            {callStatus === 'Listening' && (
+              <p className="recording-hint">
+                Listening... speak now{recordingSecondsLeft ? ` (${recordingSecondsLeft}s)` : ''}
+              </p>
+            )}
           </div>
 
           <div className="call-actions">
             <button className="primary-button" onClick={handleStartCall} disabled={callActive}>
               Start Call
+            </button>
+            <button className="primary-button" onClick={handleSpeakAnswer} disabled={speakAnswerDisabled}>
+              Speak Answer
             </button>
             <button className="secondary-button" onClick={handleEndCall} disabled={!callActive}>
               End Call
@@ -589,6 +647,19 @@ function createSessionId() {
     return window.crypto.randomUUID()
   }
   return `voice-session-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function getSupportedAudioMimeType() {
+  if (!window.MediaRecorder?.isTypeSupported) {
+    return ''
+  }
+
+  return [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg'
+  ].find((mimeType) => window.MediaRecorder.isTypeSupported(mimeType)) || ''
 }
 
 export default App
