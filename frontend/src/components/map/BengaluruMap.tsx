@@ -374,6 +374,38 @@ export function BengaluruMap({
 
     map.on('load', () => {
       setIsMapLoaded(true);
+
+      // Hide default 2D building layer if it exists
+      if (map.getLayer('building')) {
+        map.setLayoutProperty('building', 'visibility', 'none');
+      }
+
+      // Add a 3D extruded building layer
+      const isDark = MAP_CONFIG.style.includes('dark');
+      map.addLayer({
+        id: '3d-buildings',
+        source: 'openmaptiles',
+        'source-layer': 'building',
+        type: 'fill-extrusion',
+        minzoom: 13,
+        paint: {
+          'fill-extrusion-color': isDark ? '#2C2C2C' : '#EAEAEA',
+          'fill-extrusion-height': [
+            'coalesce',
+            ['get', 'render_height'],
+            ['get', 'height'],
+            15,
+          ],
+          'fill-extrusion-base': [
+            'coalesce',
+            ['get', 'render_min_height'],
+            ['get', 'min_height'],
+            0,
+          ],
+          'fill-extrusion-opacity': 0.65,
+        },
+      });
+
       // ── Risk heatmap source (muted, professional) ──
       if (riskZones.length > 0) {
         map.addSource('risk-zones', {
