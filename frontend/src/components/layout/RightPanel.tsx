@@ -36,20 +36,24 @@ export function RightPanel() {
   const pathname = usePathname();
   const router = useRouter();
 
-  if (pathname !== '/dashboard') return null;
-
   const { data: incidents, isLoading } = useSWR(
     '/incidents/active',
     () => api.incidents.active(),
     { refreshInterval: 15000 }
   );
 
-  const { data: kpis } = useSWR('/analytics/kpis', () => api.analytics.kpis(), { refreshInterval: 30000 });
+  const { data: kpis } = useSWR(
+    '/analytics/kpis',
+    () => api.analytics.kpis(),
+    { refreshInterval: 30000 }
+  );
+
+  if (pathname !== '/dashboard') {
+    return null;
+  }
 
   const recentFive = (incidents || []).slice(0, 5);
-
   const p1Count = (incidents || []).filter(i => i.predicted_priority === 'P1').length;
-  const inProgressCount = (incidents || []).filter(i => i.status === 'IN_PROGRESS').length;
 
   return (
     <aside className="right-panel">

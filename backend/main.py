@@ -1,5 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from models import IncidentRequest, InteractiveVoiceSessionRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from schemas import IncidentRequest, InteractiveVoiceSessionRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
 from services.extraction_service import extract_incident_fields
 from services.llm_extraction_service import extract_incident_fields_llm
 from services.openai_extraction_service import extract_incident_fields_openai
@@ -16,10 +17,23 @@ import os
 import shutil
 import json
 import uuid
+import tempfile
+import re
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 import logging
+
+from llm_backend.transcription import transcribe
+from llm_backend.voice import (
+    start_voice_session,
+    normalize_streaming_transcript,
+    get_streaming_expected_field,
+    update_streaming_current_incident,
+    get_streaming_next_question,
+    get_streaming_default_severity,
+    parse_streaming_severity
+)
 
 # Load environment variables
 load_dotenv()
@@ -29,6 +43,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SentinelAI Incident Copilot Backend")
+
+# CORS — allow frontend origins for both HTTP and WebSocket
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Create temp_uploads folder if it doesn't exist
 TEMP_UPLOADS_DIR = "temp_uploads"
@@ -135,6 +158,258 @@ def resolve_location_with_geocoding(extracted: dict) -> dict:
     # Strategy 3: Return what we have from local resolution (may have road_name without coords)
     logger.info(f"Location resolution final: {location.get('location_name')}")
     return location
+
+def transcribe_streaming_audio(file_path: str) -> str:
+    try:
+        return transcribe_audio_file(file_path)
+    except Exception as e:
+        logger.warning(f"Streaming transcription failed: {e}")
+        return ""
+def normalize_streaming_transcript(transcript: str) -> str:
+    text = transcript.strip()
+    if not text:
+        return ""
+    lower_text = text.lower()
+    if "i'm sorry, i'm sorry" in lower_text or "i am sorry, i am sorry" in lower_text:
+        return ""
+    replacements = {
+        "traffic condition": "__CONGESTION__",
+        "traffic jam": "__CONGESTION__",
+        "heavy traffic": "__CONGESTION__",
+        "slow traffic": "__CONGESTION__",
+        "slow moving": "__CONGESTION__",
+        "conjition": "__CONGESTION__",
+        "condition": "__CONGESTION__",
+        "conjection": "__CONGESTION__",
+        "conjestion": "__CONGESTION__",
+        "congestion": "__CONGESTION__",
+        "jam": "__CONGESTION__",
+        "action": "__ACCIDENT__",
+        "axident": "__ACCIDENT__",
+        "accident": "__ACCIDENT__",
+        "crash": "__ACCIDENT__",
+        "collision": "__ACCIDENT__",
+        "good luck": "__ROAD_BLOCK__",
+        "another block": "__ROAD_BLOCK__",
+        "roadblock": "__ROAD_BLOCK__",
+        "road block": "__ROAD_BLOCK__",
+        "road black": "__ROAD_BLOCK__",
+        "blocked": "__ROAD_BLOCK__",
+        "block": "__ROAD_BLOCK__",
+        "namakal junction": "__NAMAKKAL__",
+        "namakkal junction": "__NAMAKKAL__",
+        "namakal": "__NAMAKKAL__",
+        "namakkal": "__NAMAKKAL__",
+    }
+    normalized = text
+    for source, target in replacements.items():
+        normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
+    normalized = (
+        normalized
+        .replace("__CONGESTION__", "congestion")
+        .replace("__ACCIDENT__", "accident")
+        .replace("__ROAD_BLOCK__", "road block")
+        .replace("__NAMAKKAL__", "Namakkal")
+    )
+    return normalized.strip()
+def get_v2_expected_field(current_incident: dict) -> Optional[str]:
+    if not current_incident.get("event_type"):
+        return "event_type"
+    if not current_incident.get("location_name") and not current_incident.get("road_name"):
+        return "location"
+    if not current_incident.get("traffic_condition"):
+        return "traffic_condition"
+    if not current_incident.get("severity"):
+        return "severity"
+    return None
+def update_v2_current_incident(current_incident: dict, transcript: str, expected_field: Optional[str]) -> None:
+    text = transcript.lower()
+    if expected_field == "event_type" or not current_incident.get("event_type"):
+        if any(phrase in text for phrase in ["congestion", "traffic", "jam", "slow moving"]):
+            current_incident["event_type"] = "congestion"
+        if "accident" in text:
+            current_incident["event_type"] = "accident"
+        if "road block" in text or "blocked" in text:
+            current_incident["event_type"] = "road_block"
+        if "breakdown" in text:
+            current_incident["event_type"] = "vehicle_breakdown"
+        if "fire" in text:
+            current_incident["event_type"] = "fire"
+        if any(phrase in text for phrase in ["medical", "ambulance", "injured"]):
+            current_incident["event_type"] = "medical_emergency"
+    location = extract_location_from_text(transcript)
+    if location.get("location_name"):
+        current_incident["location_name"] = location["location_name"]
+    if location.get("road_name"):
+        current_incident["road_name"] = location["road_name"]
+    if location.get("lat") is not None and location.get("lng") is not None:
+        current_incident["lat"] = location["lat"]
+        current_incident["lng"] = location["lng"]
+    is_traffic_answer = expected_field == "traffic_condition" or any(
+        phrase in text
+        for phrase in ["blocked", "road blocked", "not moving", "stopped", "slow", "slow moving", "heavy traffic", "jam", "normal", "clear", "okay", "moving"]
+    )
+    if is_traffic_answer and any(phrase in text for phrase in ["blocked", "road blocked", "road block", "not moving", "stopped"]):
+        current_incident["traffic_condition"] = "blocked"
+    elif is_traffic_answer and any(phrase in text for phrase in ["slow", "slow moving", "heavy traffic", "jam", "congestion"]):
+        current_incident["traffic_condition"] = "slow_moving"
+    elif is_traffic_answer and any(phrase in text for phrase in ["normal", "clear", "okay", "moving"]):
+        current_incident["traffic_condition"] = "normal"
+    is_severity_answer = expected_field == "severity" or any(
+        phrase in text
+        for phrase in ["high", "serious", "major", "emergency", "critical", "medium", "moderate", "low", "minor", "small"]
+    )
+    if is_severity_answer and any(phrase in text for phrase in ["high", "serious", "major", "emergency", "critical"]):
+        current_incident["severity"] = "high"
+    elif is_severity_answer and any(phrase in text for phrase in ["medium", "moderate"]):
+        current_incident["severity"] = "medium"
+    elif is_severity_answer and any(phrase in text for phrase in ["low", "minor", "small"]):
+        current_incident["severity"] = "low"
+def parse_v2_severity(transcript: str) -> Optional[str]:
+    text = transcript.lower()
+    def has_phrase(phrases: list[str]) -> bool:
+        return any(re.search(rf"\b{re.escape(phrase)}\b", text) for phrase in phrases)
+    if has_phrase(["i can hear you, i can hear you", "i can hear you i can hear you"]):
+        return None
+    if has_phrase(["not too serious", "medium", "mediam", "median", "moderate", "normal severity"]):
+        return "medium"
+    if has_phrase(["not serious", "low", "lo", "love", "hello", "hi", "minor", "small"]):
+        return "low"
+    if has_phrase(["high", "hai", "height", "serious", "major", "emergency", "critical"]):
+        return "high"
+    return None
+def get_v2_default_severity(current_incident: dict) -> str:
+    if current_incident.get("event_type") == "road_block" and current_incident.get("traffic_condition") == "blocked":
+        return "high"
+    if current_incident.get("event_type") == "congestion":
+        return "medium"
+    return "medium"
+def get_v2_next_question(current_incident: dict) -> tuple[bool, Optional[str]]:
+    if not current_incident.get("event_type"):
+        return False, "What happened exactly? Was it an accident, breakdown, congestion, road block, fire, or medical emergency?"
+    if not current_incident.get("location_name") and not current_incident.get("road_name"):
+        return False, "Where is the incident happening?"
+    if not current_incident.get("traffic_condition"):
+        return False, "Is traffic blocked, slow moving, or normal?"
+    if not current_incident.get("severity"):
+        return False, "How severe is it? Please say low, medium, or high."
+    return True, None
+@app.websocket("/ws/voice-call")
+async def voice_call_websocket(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("websocket connected")
+    ai_speaking = False
+    
+    session = start_voice_session()
+    severity_retry_count = 0
+    completion_message = "Thank you. Incident details are complete. The incident has been created and sent to the control room."
+    
+    await websocket.send_json({
+        "type": "ai_question",
+        "text": "Please describe the traffic incident.",
+    })
+    
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                logger.info("voice websocket disconnected")
+                break
+                
+            if "text" in message and message["text"] is not None:
+                try:
+                    payload = json.loads(message["text"])
+                    logger.info(f"voice websocket text JSON: {payload}")
+                    if payload.get("type") == "ai_speaking":
+                        ai_speaking = bool(payload.get("value"))
+                except json.JSONDecodeError:
+                    logger.info(f"voice websocket text: {message['text']}")
+                    
+            if "bytes" in message and message["bytes"] is not None:
+                if ai_speaking:
+                    continue
+                segment_audio = message["bytes"]
+                byte_count = len(segment_audio)
+                logger.info(f"received complete segment: {byte_count} bytes")
+                temp_path = None
+                
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_file:
+                        temp_file.write(segment_audio)
+                        temp_path = temp_file.name
+                        
+                    logger.info(f"saved temp segment path: {temp_path}")
+                    await websocket.send_json({
+                        "type": "audio_segment_ready",
+                        "message": "User audio segment captured",
+                        "bytes": byte_count,
+                    })
+                    
+                    transcript_raw = transcribe(temp_path)
+                    normalized_transcript = normalize_streaming_transcript(transcript_raw)
+                    print("RAW STREAMING TRANSCRIPT:", transcript_raw)
+                    print("NORMALIZED STREAMING TRANSCRIPT:", normalized_transcript)
+                    
+                    current_inc = session.state.current_incident
+                    expected_field = get_streaming_expected_field(current_inc)
+                    print("EXPECTED FIELD:", expected_field)
+                    
+                    transcript_text = normalized_transcript if normalized_transcript else "No clear speech detected. Please speak after the beep."
+                    
+                    if expected_field == "severity":
+                        severity = parse_streaming_severity(normalized_transcript)
+                        if severity:
+                            current_inc["severity"] = severity
+                            normalized_transcript = severity
+                            transcript_text = severity
+                        else:
+                            severity_retry_count += 1
+                            transcript_text = "No clear severity detected. Please say low, medium, or high."
+                            if severity_retry_count >= 2:
+                                default_severity = get_streaming_default_severity(current_inc)
+                                current_inc["severity"] = default_severity
+                                transcript_text = f"Severity unclear. Marked as {default_severity}."
+                                completion_message = f"Severity was unclear, so I marked it as {default_severity}. Thank you. Incident details are complete. The incident has been created and sent to the control room."
+                                
+                    print("SEVERITY RETRY COUNT:", severity_retry_count)
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "text": transcript_text,
+                    })
+                    
+                    if normalized_transcript and expected_field != "severity":
+                        update_streaming_current_incident(current_inc, normalized_transcript, expected_field)
+                        
+                    complete, next_question = get_streaming_next_question(current_inc)
+                    print("V2 CURRENT INCIDENT:", current_inc)
+                    print("V2 NEXT QUESTION:", next_question)
+                    print("V2 COMPLETE:", complete)
+                    
+                    await websocket.send_json({
+                        "type": "current_incident",
+                        "incident": current_inc,
+                    })
+                    
+                    if complete:
+                        final_res = session.finalize()
+                        await websocket.send_json({
+                            "type": "complete",
+                            "message": completion_message,
+                            "incident": final_res["incident"],
+                        })
+                    else:
+                        await websocket.send_json({
+                            "type": "ai_question",
+                            "text": next_question,
+                        })
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception as e:
+                            logger.warning(f"Failed to remove temp streaming segment {temp_path}: {e}")
+    except WebSocketDisconnect:
+        logger.info("voice websocket disconnected")
 
 
 @app.get("/")
@@ -245,7 +520,7 @@ async def stt_endpoint(audio: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=f"Failed to save upload: {str(e)}")
             
         try:
-            transcript = transcribe_audio_file(temp_file_path)
+            transcript = transcribe(temp_file_path)
             return {"success": True, "transcript": transcript}
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
