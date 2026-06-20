@@ -21,37 +21,26 @@ import { Station, RiskZone, Incident } from '@/lib/api';
 
 function createStationMarker(readinessScore: number): HTMLElement {
   const color =
-    readinessScore > 70  ? '#CDFF50' : // Neon Lime
-    readinessScore >= 40 ? '#FF9900' : // Neon Orange
-    '#FF3366';                         // Neon Pink/Red
+    readinessScore > 70  ? '#B9E63F' : // High Readiness
+    readinessScore >= 40 ? '#EAB308' : // Medium Readiness
+    '#E35D5D';                         // Low Readiness
 
   const wrapper = document.createElement('div');
   wrapper.style.cssText = `
     position: relative;
-    width: 36px;
-    height: 36px;
+    width: 24px;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
   `;
 
-  // Soft neon glow
-  const glow = document.createElement('div');
-  glow.style.cssText = `
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: ${color};
-    opacity: 0.25;
-    filter: blur(4px);
-  `;
-
-  // Sharp ring
+  // Sharp ring with white fill
   const pin = document.createElement('div');
   pin.innerHTML = `
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="10" cy="10" r="8" fill="#111111" stroke="${color}" stroke-width="2.5" />
+      <circle cx="10" cy="10" r="8" fill="#FFFFFF" stroke="${color}" stroke-width="2.5" />
       <circle cx="10" cy="10" r="3" fill="${color}" />
     </svg>
   `;
@@ -61,16 +50,15 @@ function createStationMarker(readinessScore: number): HTMLElement {
     line-height: 0;
   `;
 
-  wrapper.appendChild(glow);
   wrapper.appendChild(pin);
   return wrapper;
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
-  P1: '#FF3366', // Critical — Red
-  P2: '#FF9900', // High — Orange
-  P3: '#FFCC00', // Medium — Yellow
-  P4: '#00E5FF', // Low — Cyan
+ P1: '#E35D5D',
+  P2: '#EAB308',
+  P3: '#B9E63F',   // Brand Lime
+  P4: '#64748B',
 };
 
 // In-progress gets a distinctive blue
@@ -91,8 +79,8 @@ if (typeof document !== 'undefined') {
     s.id = styleId;
     s.textContent = `
       @keyframes sentinelPulse {
-        0%   { transform: scale(0.8); opacity: 0.8; }
-        50%  { transform: scale(1.6); opacity: 0.2; }
+        0%   { transform: scale(0.8); opacity: 0.5; }
+        50%  { transform: scale(1.6); opacity: 0.15; }
         100% { transform: scale(0.8); opacity: 0.0; }
       }
     `;
@@ -100,66 +88,88 @@ if (typeof document !== 'undefined') {
   }
 }
 
-function createIncidentMarker(priority: string, status?: string): HTMLElement {
+function createIncidentMarker(priority: string, status?: string, isSelected?: boolean): HTMLElement {
   const color = getIncidentColor(priority, status);
   const isP1 = priority === 'P1';
 
   const wrapper = document.createElement('div');
+  const size = isSelected ? 48 : 40;
   wrapper.style.cssText = `
     position: relative;
-    width: 44px;
-    height: 44px;
+    width: ${size}px;
+    height: ${size}px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
   `;
 
-  // Pulsing halo — faster for P1
-  const pulse = document.createElement('div');
-  pulse.style.cssText = `
-    position: absolute;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: ${color};
-    opacity: 0.7;
-    animation: sentinelPulse ${isP1 ? '1.0s' : '2.2s'} ease-out infinite;
-  `;
+  // Highlight ring if selected
+  if (isSelected) {
+    const highlight = document.createElement('div');
+    highlight.style.cssText = `
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 3px solid #B9E63F;
+      background: transparent;
+      z-index: 0;
+    `;
+    wrapper.appendChild(highlight);
+  }
+
+  // Pulsing halo — subtle pulse allowed ONLY for P1
+  if (isP1) {
+    const pulse = document.createElement('div');
+    pulse.style.cssText = `
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: ${color};
+      opacity: 0.3;
+      animation: sentinelPulse 2.0s ease-out infinite;
+      z-index: 0;
+    `;
+    wrapper.appendChild(pulse);
+  }
 
   // Static ring
   const ring = document.createElement('div');
+  const ringSize = isSelected ? 18 : 14;
   ring.style.cssText = `
     position: absolute;
-    width: 20px;
-    height: 20px;
+    width: ${ringSize}px;
+    height: ${ringSize}px;
     border-radius: 50%;
-    border: 2.5px solid ${color};
-    background: rgba(17,17,17,0.9);
+    border: 2px solid ${color};
+    background: #FFFFFF;
+    z-index: 1;
   `;
 
   // Center dot
   const dot = document.createElement('div');
+  const dotSize = isSelected ? 8 : 6;
   dot.style.cssText = `
     position: absolute;
-    width: 7px;
-    height: 7px;
+    width: ${dotSize}px;
+    height: ${dotSize}px;
     border-radius: 50%;
     background: ${color};
-    z-index: 1;
+    z-index: 2;
   `;
 
-  wrapper.appendChild(pulse);
   wrapper.appendChild(ring);
   wrapper.appendChild(dot);
   return wrapper;
 }
 
 const PRIORITY_BG: Record<string, string> = {
-  P1: '#FEE2E2', P2: '#FEF3C7', P3: '#FEF9C3', P4: '#DBEAFE',
+  P1: '#FEE2E2', P2: '#FEF3C7', P3: '#EBF7D4', P4: '#F1F5F9',
 };
 const PRIORITY_TEXT: Record<string, string> = {
-  P1: '#DC2626', P2: '#D97706', P3: '#CA8A04', P4: '#2563EB',
+  P1: '#E35D5D', P2: '#EAB308', P3: '#7C9E1B', P4: '#64748B',
 };
 
 function renderIncidentCard(incident: {
@@ -231,8 +241,8 @@ function renderStationCard(station: {
   active_incidents: number;
 }): string {
   const readColor =
-    station.readiness_score > 70  ? '#16A34A' :
-    station.readiness_score >= 40 ? '#EA580C' : '#DC2626';
+    station.readiness_score > 70  ? '#B9E63F' :
+    station.readiness_score >= 40 ? '#EAB308' : '#E35D5D';
 
   return `
     <div style="
@@ -274,10 +284,10 @@ function renderStationCard(station: {
 }
 
 const MAP_CONFIG = {
-  style: 'https://tiles.openfreemap.org/styles/dark',
+  style: 'https://tiles.openfreemap.org/styles/positron',
   center: [77.5946, 12.9716] as [number, number],
   zoom: 15,
-  pitch: 60,
+  pitch: 35,
   bearing: -20,
   minZoom: 10,
   maxZoom: 20,
@@ -291,6 +301,7 @@ interface BengaluruMapProps {
   onIncidentClick?: (incident: Incident) => void;
   height?: string;
   showLayerControls?: boolean;
+  selectedIncidentId?: string;
 }
 
 export function BengaluruMap({
@@ -301,6 +312,7 @@ export function BengaluruMap({
   onIncidentClick,
   height = '480px',
   showLayerControls = true,
+  selectedIncidentId,
 }: BengaluruMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -332,6 +344,65 @@ export function BengaluruMap({
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     mapRef.current = map;
+
+    // Apply Command Center Light style rules
+    map.on('style.load', () => {
+      // Land / Background color
+      if (map.getLayer('background')) {
+        map.setPaintProperty('background', 'background-color', '#FAFAFA');
+      }
+
+      // Water color
+      if (map.getLayer('water')) {
+        map.setPaintProperty('water', 'fill-color', '#EAF4FF');
+      }
+
+      // Road colors
+      const roadLayers = [
+        'highway_motorway_inner',
+        'highway_motorway_casing',
+        'highway_major_inner',
+        'highway_major_casing',
+        'highway_minor',
+        'highway_path',
+        'road_pier'
+      ];
+      roadLayers.forEach(id => {
+        if (map.getLayer(id)) {
+          map.setPaintProperty(id, 'line-color', '#DADADA');
+        }
+      });
+
+      // Label text colors
+      const labelLayers = [
+        'place_city_large',
+        'place_city',
+        'place_town',
+        'place_village',
+        'place_suburb',
+        'place_other',
+        'place_state',
+        'place_country_major',
+        'place_country_minor',
+        'place_country_other'
+      ];
+      labelLayers.forEach(id => {
+        if (map.getLayer(id)) {
+          map.setPaintProperty(id, 'text-color', '#111111');
+        }
+      });
+
+      const minorLabelLayers = [
+        'highway_name_other',
+        'highway_name_motorway',
+        'water_name'
+      ];
+      minorLabelLayers.forEach(id => {
+        if (map.getLayer(id)) {
+          map.setPaintProperty(id, 'text-color', '#6B7280');
+        }
+      });
+    });
 
     // Handle missing sprites in the OpenFreeMap style (e.g. wood-pattern)
     map.on('styleimagemissing', (e) => {
@@ -389,7 +460,7 @@ export function BengaluruMap({
         type: 'fill-extrusion',
         minzoom: 13,
         paint: {
-          'fill-extrusion-color': isDark ? '#2C2C2C' : '#EAEAEA',
+          'fill-extrusion-color': isDark ? '#2C2C2C' : '#ECECEC',
           'fill-extrusion-height': [
             'coalesce',
             ['get', 'render_height'],
@@ -402,7 +473,7 @@ export function BengaluruMap({
             ['get', 'min_height'],
             0,
           ],
-          'fill-extrusion-opacity': 0.65,
+          'fill-extrusion-opacity': 0.35,
         },
       });
 
@@ -432,11 +503,11 @@ export function BengaluruMap({
             'heatmap-color': [
               'interpolate', ['linear'], ['heatmap-density'],
               0, 'rgba(0,0,0,0)',
-              0.4, 'rgba(246,173,85,0.35)',
-              0.8, 'rgba(229,62,62,0.5)',
-              1, 'rgba(229,62,62,0.65)',
+              0.4, 'rgba(185,230,63,0.20)', // Low Risk
+              0.8, 'rgba(234,179,8,0.25)',  // Medium Risk
+              1, 'rgba(227,93,93,0.30)',    // High Risk
             ],
-            'heatmap-opacity': 0.7,
+            'heatmap-opacity': 0.6,
           },
         });
       }
@@ -520,7 +591,8 @@ export function BengaluruMap({
       if (!inc.latitude || !inc.longitude) return;
 
       const p = inc.predicted_priority || 'P4';
-      const el = createIncidentMarker(p, inc.status);
+      const isSelected = inc.incident_id === selectedIncidentId || (incidents.length === 1 && inc.incident_id === incidents[0].incident_id);
+      const el = createIncidentMarker(p, inc.status, isSelected);
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([inc.longitude, inc.latitude])
@@ -557,7 +629,7 @@ export function BengaluruMap({
 
       incidentMarkersRef.current.push(marker);
     });
-  }, [incidents, layers.incidents, onIncidentClick, isMapLoaded]);
+  }, [incidents, layers.incidents, onIncidentClick, isMapLoaded, selectedIncidentId]);
 
   // ── Toggle heatmap visibility ──
   useEffect(() => {
@@ -575,13 +647,13 @@ export function BengaluruMap({
       {showLayerControls && (
         <div style={{
           position: 'absolute', bottom: '24px', left: '24px',
-          background: '#111111', border: '1px solid #333333',
+          background: '#FFFFFF', border: '1px solid #E5E5E5',
           borderRadius: '16px', padding: '16px',
           display: 'flex', flexDirection: 'column', gap: '12px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
           zIndex: 10,
         }}>
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Map Layers
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -591,7 +663,7 @@ export function BengaluruMap({
               { key: 'heatmap', label: 'Risk Heatmap' },
               { key: 'coverage', label: 'Coverage Radius' },
             ].map(({ key, label }) => (
-              <label key={key} className="map-checkbox-row" style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0 }}>
+              <label key={key} className="map-checkbox-row" style={{ color: '#111111', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0 }}>
                 <input
                   type="checkbox"
                   checked={layers[key as keyof typeof layers]}
