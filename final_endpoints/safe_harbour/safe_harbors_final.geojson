@@ -1,0 +1,78 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "SH0000",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.64551862778242,
+          12.921743681890192
+        ]
+      },
+      "properties": {
+        "harbor_id": "SH0000",
+        "num_incidents": 6,
+        "radius_meters": 61.04705270670499,
+        "vehicle_types": [
+          "heavy_vehicle",
+          "private_bus",
+          "two_wheeler"
+        ],
+        "zone": "South East Zone",
+        "junction": "HSR Layout",
+        "confidence": 0.6,
+        "avg_resolution_time": 12.117580500073224
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "SH0001",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.58604471859664,
+          12.95569808473553
+        ]
+      },
+      "properties": {
+        "harbor_id": "SH0001",
+        "num_incidents": 5,
+        "radius_meters": 46.794961138223414,
+        "vehicle_types": [
+          "heavy_vehicle",
+          "auto_rickshaw"
+        ],
+        "zone": "Central Zone",
+        "junction": "Lalbagh Main Gate",
+        "confidence": 0.5,
+        "avg_resolution_time": 17.527561581969167
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "SH0002",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          77.57913831743107,
+          13.00619594669811
+        ]
+      },
+      "properties": {
+        "harbor_id": "SH0002",
+        "num_incidents": 4,
+        "radius_meters": 38.50645780434645,
+        "vehicle_types": [
+          "heavy_vehicle",
+          "car"
+        ],
+        "zone": "North East Zone",
+        "junction": "Bashyam Circle",
+        "confidence": 0.4,
+        "avg_resolution_time": 15.107987572702221
+      }
+    }
+  ]
+}
