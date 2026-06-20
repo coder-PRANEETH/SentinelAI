@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { Station, RiskZone, Incident } from '@/lib/api';
 
 /**
@@ -274,7 +274,7 @@ function renderStationCard(station: {
 }
 
 const MAP_CONFIG = {
-  style: 'mapbox://styles/mapbox/navigation-night-v1',
+  style: 'https://tiles.openfreemap.org/styles/positron',
   center: [77.5946, 12.9716] as [number, number],
   zoom: 15,
   pitch: 60,
@@ -303,10 +303,10 @@ export function BengaluruMap({
   showLayerControls = true,
 }: BengaluruMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const hoverCardRef = useRef<HTMLDivElement | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-  const incidentMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const incidentMarkersRef = useRef<maplibregl.Marker[]>([]);
 
   const [layers, setLayers] = useState({
     stations: false,
@@ -316,13 +316,10 @@ export function BengaluruMap({
   });
   const [isMapLoaded, setIsMapLoaded] = useState(false);
 
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-
   useEffect(() => {
-    if (!mapContainer.current || !token) return;
+    if (!mapContainer.current) return;
 
-    mapboxgl.accessToken = token;
-    const map = new mapboxgl.Map({
+    const map = new maplibregl.Map({
       container: mapContainer.current,
       style: MAP_CONFIG.style,
       center: MAP_CONFIG.center,
@@ -333,12 +330,24 @@ export function BengaluruMap({
       maxZoom: MAP_CONFIG.maxZoom,
     });
 
-    map.on('style.load', () => {
-      map.setConfigProperty('basemap', 'lightPreset', 'dark');
-    });
-
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     mapRef.current = map;
+
+    // Handle missing sprites in the OpenFreeMap style (e.g. wood-pattern)
+    map.on('styleimagemissing', (e) => {
+      if (e.id === 'wood-pattern') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+          ctx.fillRect(0, 0, 1, 1);
+          const imgData = ctx.getImageData(0, 0, 1, 1);
+          map.addImage('wood-pattern', imgData);
+        }
+      }
+    });
 
     const resizeObserver = new ResizeObserver(() => {
       map.resize();
@@ -412,7 +421,8 @@ export function BengaluruMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Update station markers when stations change ──
   useEffect(() => {
@@ -432,12 +442,13 @@ export function BengaluruMap({
       const score = Number(station.readiness_score);
       const el = createStationMarker(score);
 
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([station.longitude!, station.latitude!])
         .addTo(map);
 
       el.addEventListener('mouseenter', () => {
         if (!hoverCardRef.current || !mapContainer.current) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         hoverCardRef.current.innerHTML = renderStationCard(station as any);
         const point = map.project([station.longitude!, station.latitude!]);
         const rect = mapContainer.current.getBoundingClientRect();
@@ -479,12 +490,13 @@ export function BengaluruMap({
       const p = inc.predicted_priority || 'P4';
       const el = createIncidentMarker(p, inc.status);
 
-      const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([inc.longitude, inc.latitude])
         .addTo(map);
 
       el.addEventListener('mouseenter', () => {
         if (!hoverCardRef.current || !mapContainer.current) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         hoverCardRef.current.innerHTML = renderIncidentCard(inc as any);
         const point = map.project([inc.longitude!, inc.latitude!]);
         const rect = mapContainer.current.getBoundingClientRect();
@@ -523,22 +535,8 @@ export function BengaluruMap({
     map.setLayoutProperty('risk-heatmap', 'visibility', layers.heatmap ? 'visible' : 'none');
   }, [layers.heatmap]);
 
-  if (!token) {
-    return (
-      <div
-        className="map-container"
-        style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F0F1EF' }}
-      >
-        <div style={{ textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-          <div style={{ fontSize: '24px', marginBottom: '8px' }}>🗺</div>
-          <div style={{ fontSize: '13px' }}>Set NEXT_PUBLIC_MAPBOX_TOKEN to enable map</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="map-container" style={{ height: '100%', flex: 1, position: 'relative', width: '100%', margin: 0, padding: 0, border: 'none' }}>
+    <div className="map-container" style={{ height, flex: 1, position: 'relative', width: '100%', margin: 0, padding: 0, border: 'none' }}>
       <div ref={mapContainer} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
 
       {/* Layer controls */}

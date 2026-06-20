@@ -729,8 +729,9 @@ select.form-input {
   transform: rotate(45deg);
 }
 
-/* Mapbox Popup Overrides */
-.mapboxgl-popup-content {
+/* Mapbox & MapLibre Popup Overrides */
+.mapboxgl-popup-content,
+.maplibregl-popup-content {
   border-radius: 12px !important;
   padding: 0 !important;
   box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
@@ -738,7 +739,8 @@ select.form-input {
   overflow: hidden;
 }
 
-.mapboxgl-popup-tip {
+.mapboxgl-popup-tip,
+.maplibregl-popup-tip {
   display: none !important;
 }
 
