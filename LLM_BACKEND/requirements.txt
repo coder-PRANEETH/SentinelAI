@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+faster-whisper
+python-multipart
+google-generativeai
+python-dotenv
+requests
+openai
+geopy
