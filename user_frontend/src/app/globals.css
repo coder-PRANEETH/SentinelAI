@@ -185,3 +185,329 @@ a {
   background: var(--color-accent);
   animation: sentinel-live-pulse 2s infinite;
 }
+
+/* ── Landing: live emergency-operations hero ────────────────────────── */
+
+.ops-root {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+/* Full-bleed map backdrop, sits behind everything. The brightness/contrast/
+   saturate lift keeps OpenFreeMap's near-black "dark" style from reading as
+   a flat black rectangle behind the overlay.
+   !important on position: MapLibre adds its own "maplibregl-map" class
+   directly onto this container, and maplibre-gl.css sets that class to
+   `position: relative`. Because that stylesheet loads after this one, its
+   rule otherwise wins (equal specificity, later source order), turning this
+   into a normal-flow block that pushes the header/panel down by a full
+   viewport height. Forcing `fixed` here keeps it pinned behind everything
+   regardless of import order. */
+.ops-map-canvas {
+  position: fixed !important;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  filter: brightness(1.45) contrast(1.12) saturate(1.35);
+}
+
+/* CSS/SVG ambient scene shown on top of the map until tiles are confirmed
+   loaded — fades away once the real map is healthy, or stays put (and
+   keeps animating) if tiles fail/are slow. */
+.ops-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 75% 25%, rgba(61, 242, 255, 0.07), transparent 60%),
+    radial-gradient(100% 80% at 15% 75%, rgba(205, 255, 80, 0.06), transparent 60%),
+    #07090a;
+  transition: opacity 0.9s ease;
+  opacity: 1;
+}
+.ops-fallback--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.ops-fallback-grid {
+  position: absolute;
+  inset: -2px;
+  background-image:
+    linear-gradient(90deg, rgba(205, 255, 80, 0.08) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(205, 255, 80, 0.08) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(80% 70% at 60% 45%, #000 55%, transparent 100%);
+}
+.ops-fallback-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.ops-fallback-route {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 14 10;
+  animation: ops-fallback-flow 3.2s linear infinite;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.ops-fallback-route--lime {
+  stroke: #cdff50;
+  color: #cdff50;
+  opacity: 0.75;
+}
+.ops-fallback-route--cyan {
+  stroke: #3df2ff;
+  color: #3df2ff;
+  opacity: 0.6;
+  animation-duration: 4s;
+  animation-direction: reverse;
+}
+@keyframes ops-fallback-flow {
+  to {
+    stroke-dashoffset: -240;
+  }
+}
+.ops-fallback-dot {
+  fill: #eaffb0;
+  filter: drop-shadow(0 0 8px #cdff50);
+  animation: ops-fallback-pulse 2.2s ease-in-out infinite;
+}
+.ops-fallback-dot--red {
+  fill: #ff8a8a;
+  filter: drop-shadow(0 0 8px #e53e3e);
+}
+@keyframes ops-fallback-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    r: 4;
+  }
+  50% {
+    opacity: 1;
+    r: 6.5;
+  }
+}
+
+/* Gradient overlay: darkens only the band under the left card panel so it
+   stays readable; the right ~60% of the screen is left clear so the live
+   map (routes, pulses, vehicles) reads at full brightness. */
+.ops-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 45% at 50% 0%, rgba(6, 8, 7, 0.32), transparent 72%),
+    radial-gradient(140% 120% at 0% 50%, rgba(205, 255, 80, 0.04), transparent 50%);
+}
+
+/* Subtle moving scanline for the "live feed" feel. */
+.ops-scanline {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.4;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(205, 255, 80, 0.03) 0px,
+    rgba(205, 255, 80, 0.03) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 40%, transparent 75%);
+  animation: ops-scan 8s linear infinite;
+}
+@keyframes ops-scan {
+  from {
+    background-position-y: 0;
+  }
+  to {
+    background-position-y: 64px;
+  }
+}
+
+/* Header is now the entire "content layer" — logo, nav links, and the CTA
+   all live in this one bar so the map stays fully unobstructed below it. */
+.ops-header {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 28px;
+  background: linear-gradient(180deg, rgba(8, 10, 9, 0.55), rgba(8, 10, 9, 0));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.ops-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.ops-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #0a0a0a;
+  font-size: 15px;
+  box-shadow: 0 0 18px rgba(205, 255, 80, 0.5);
+}
+.ops-brand-name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.ops-header-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.ops-header-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-2);
+  padding: 7px 13px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.ops-header-link:hover {
+  color: var(--color-text-primary);
+  background: rgba(205, 255, 80, 0.1);
+}
+
+.ops-header-cta {
+  flex-shrink: 0;
+  font-size: 13px;
+  padding: 9px 18px;
+  white-space: nowrap;
+}
+
+/* Safety disclaimer — kept visible at the bottom now that there's no panel
+   to hold it. */
+.ops-footer-note {
+  position: fixed;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  margin: 0;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--color-text-3);
+  pointer-events: none;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Right-side live map labels (desktop only) ───────────────────────── */
+.ops-map-labels {
+  position: fixed;
+  z-index: 3;
+  top: 132px;
+  right: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  pointer-events: none;
+}
+.ops-map-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  border-radius: 13px;
+  background: rgba(10, 13, 11, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+  animation: sentinel-fade-up 0.5s ease both;
+}
+.ops-map-label-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+.ops-map-label-dot--lime {
+  background: #cdff50;
+  color: #cdff50;
+  animation: sentinel-live-pulse 2s infinite;
+}
+.ops-map-label-dot--cyan {
+  background: #3df2ff;
+  color: #3df2ff;
+}
+.ops-map-label-dot--amber {
+  background: #ff9900;
+  color: #ff9900;
+}
+.ops-map-label-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+}
+.ops-map-label-value {
+  font-size: 11px;
+  color: var(--color-text-2);
+  margin-top: 1px;
+}
+
+@media (max-width: 980px) {
+  .ops-map-labels {
+    display: none;
+  }
+  .ops-header-nav {
+    gap: 2px;
+  }
+  .ops-header-link {
+    font-size: 12px;
+    padding: 6px 9px;
+  }
+}
+
+/* ── Responsive: the inline nav links don't fit a phone-width header, so
+   they're dropped — logo + Report Now stay, map is visible everywhere
+   else. The full incident-type list remains one tap away via /report. ── */
+@media (max-width: 720px) {
+  .ops-header {
+    padding: 14px 16px;
+    gap: 10px;
+  }
+  .ops-header-nav {
+    display: none;
+  }
+  .ops-header-cta {
+    font-size: 12px;
+    padding: 8px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-scanline {
+    animation: none;
+  }
+}
