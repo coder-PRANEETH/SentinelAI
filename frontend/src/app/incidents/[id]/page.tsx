@@ -1,0 +1,525 @@
+'use client';
+import dynamic from 'next/dynamic';
+import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import useSWR from 'swr';
+import {
+  AlertTriangle, ArrowLeft, Clock, MapPin, Users, Car, Truck,
+  Shield, ExternalLink, Loader2, Check, X, Navigation
+} from 'lucide-react';
+import { PageHeading } from '@/components/layout/PageHeading';
+import { StatusBadge } from '@/components/shared/StatusBadge';
+import { LoadingState, ErrorState, EmptyState } from '@/components/shared/LoadingState';
+import { api, IncidentDetail, Incident, AllocateBody } from '@/lib/api';
+import type { ApiError } from '@/lib/api';
+
+const BengaluruMap = dynamic(
+  () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
+  { ssr: false, loading: () => <div className="card" style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState message="Loading map…" /></div> }
+);
+
+// ── Priority color helpers ──────────────────────────────────────────────────
+
+const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
+  P1: { bg: '#FEE2E2', text: '#DC2626' },
+  P2: { bg: '#FEF3C7', text: '#D97706' },
+  P3: { bg: '#FEF9C3', text: '#A16207' },
+  P4: { bg: '#DBEAFE', text: '#1D4ED8' },
+};
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const c = PRIORITY_COLORS[priority] ?? { bg: '#F3F4F6', text: '#6B7280' };
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', padding: '4px 14px',
+      borderRadius: '9999px', fontWeight: 700, fontSize: '13px',
+      background: c.bg, color: c.text, letterSpacing: '0.04em',
+    }}>
+      {priority}
+    </span>
+  );
+}
+
+// ── Allocate Resources Modal ────────────────────────────────────────────────
+
+function AllocateModal({
+  incidentId,
+  onClose,
+}: { incidentId: string; onClose: () => void }) {
+  const { data: readiness, isLoading } = useSWR('/station-readiness', () => api.readiness.ranked());
+  const candidates = readiness?.stations.slice(0, 5) ?? [];
+
+  const [selected, setSelected] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleAllocate = async () => {
+    if (!selected) return;
+    const station = candidates.find(s => s.station_id === selected);
+    if (!station) return;
+    setSubmitting(true);
+    setErr('');
+    try {
+      const body: AllocateBody = {
+        incident_id: incidentId,
+        resources: {
+          officers: station.available_officers,
+          vehicles: station.available_vehicles,
+          tow_trucks: station.available_tow_trucks,
+          barricades: station.available_barricades,
+        },
+      };
+      await api.stations.allocate(station.station_id, body);
+      setSuccess(true);
+      setTimeout(onClose, 1500);
+    } catch (e) {
+      setErr((e as ApiError).message || 'Failed to allocate resources.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="dialog-overlay" role="dialog" aria-modal="true">
+      <div className="dialog-content" style={{ maxWidth: 480 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700 }}>Allocate Resources</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {success ? (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+              <Check size={24} style={{ color: '#059669' }} />
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>Resources Allocated</div>
+          </div>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: '#6B6B6B', marginBottom: 16 }}>
+              Select a station to allocate available resources to incident <strong>{incidentId}</strong>.
+            </p>
+
+            {isLoading ? <LoadingState size="sm" /> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                {candidates.map(s => (
+                  <label
+                    key={s.station_id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                      border: `2px solid ${selected === s.station_id ? '#111111' : '#E5E5E5'}`,
+                      borderRadius: 12, cursor: 'pointer', transition: 'border-color 0.15s',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="station"
+                      value={s.station_id}
+                      checked={selected === s.station_id}
+                      onChange={() => setSelected(s.station_id)}
+                      style={{ accentColor: '#111111' }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{s.station_name}</div>
+                      <div style={{ fontSize: 11, color: '#6B7280' }}>
+                        Readiness: {Math.round(Number(s.readiness_score))} · {s.available_officers} officers · {s.available_vehicles} vehicles
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            {err && (
+              <div style={{ padding: '10px 14px', background: 'rgba(229,62,62,0.08)', borderRadius: 10, fontSize: 12, color: '#E53E3E', marginBottom: 12 }}>
+                {err}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" onClick={onClose} disabled={submitting}>Cancel</button>
+              <button
+                className="btn-primary"
+                onClick={handleAllocate}
+                disabled={!selected || submitting}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {submitting ? <Loader2 size={13} className="animate-spin" /> : null}
+                Allocate Resources
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ───────────────────────────────────────────────────────────────
+
+export default function IncidentDetailPage() {
+  const params = useParams<{ id: string }>();
+  const incidentId = params.id;
+  const router = useRouter();
+  const [showAllocate, setShowAllocate] = useState(false);
+
+  const { data: incident, isLoading, error } = useSWR(
+    incidentId ? `/incidents/${incidentId}` : null,
+    () => api.incidents.get(incidentId),
+    { revalidateOnFocus: false }
+  );
+
+  // Historical similar incidents
+  const { data: historicalData, isLoading: histLoading } = useSWR(
+    incident?.corridor ? `/historical/${incidentId}` : null,
+    () => api.historical.search({
+      query_text: `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
+      top_k: 5,
+      min_similarity: 0.3,
+    }),
+    { revalidateOnFocus: false }
+  );
+
+  if (isLoading) {
+    return (
+      <>
+        <PageHeading title="Incident Detail" />
+        <div className="flex-1 px-7 pb-7 flex items-center justify-center">
+          <LoadingState message="Loading incident…" size="lg" />
+        </div>
+      </>
+    );
+  }
+
+  if (error || !incident) {
+    return (
+      <>
+        <PageHeading title="Incident Detail" />
+        <div className="flex-1 px-7 pb-7 flex items-center justify-center">
+          <ErrorState message="Could not load incident. It may not exist." onRetry={() => router.refresh()} />
+        </div>
+      </>
+    );
+  }
+
+  const pred = incident.prediction;
+  const priority = pred?.predicted_priority ?? incident.predicted_priority ?? 'P4';
+  const isActive = !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(incident.status);
+
+  return (
+    <>
+      <PageHeading title={
+        <>
+          <button
+            onClick={() => router.back()}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#6B7280', padding: '0 8px 0 0' }}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <span
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 36, height: 36, borderRadius: 10, backgroundColor: '#CDFF50', flexShrink: 0,
+            }}
+          >
+            <AlertTriangle size={18} color="#111111" strokeWidth={2.5} />
+          </span>
+          Incident {incidentId}
+        </>
+      } />
+
+      <div className="flex-1 px-7 pb-7 overflow-auto">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, maxWidth: 1200 }}>
+
+          {/* ── Left column ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Header card */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <PriorityBadge priority={priority} />
+                    <StatusBadge status={incident.status.replace(/_/g, ' ') as any} />
+                    <span style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace' }}>{incidentId}</span>
+                  </div>
+                  <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 4 }}>
+                    {incident.incident_type || 'Unknown Incident Type'}
+                  </h1>
+                  {incident.corridor && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#6B7280', fontSize: 13 }}>
+                      <Navigation size={13} />
+                      {incident.corridor}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {isActive && (
+                    <button
+                      className="btn-accent"
+                      onClick={() => setShowAllocate(true)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Users size={14} /> Allocate Resources
+                    </button>
+                  )}
+                  <Link
+                    href={`/incidents/${incidentId}/dispatch`}
+                    className="btn-primary"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}
+                  >
+                    <ExternalLink size={14} /> Dispatch
+                  </Link>
+                </div>
+              </div>
+
+              {/* Detail fields */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                {[
+                  { label: 'Event Cause', value: incident.event_cause || '—' },
+                  { label: 'Vehicle Type', value: incident.vehicle_type || '—' },
+                  { label: 'Location', value: incident.location || '—' },
+                  {
+                    label: 'Reported At',
+                    value: incident.reported_at
+                      ? new Date(incident.reported_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                      : '—'
+                  },
+                  {
+                    label: 'Resolved At',
+                    value: incident.resolved_at
+                      ? new Date(incident.resolved_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })
+                      : '—'
+                  },
+                  { label: 'Status', value: incident.status.replace(/_/g, ' ') },
+                ].map(({ label, value }) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#111111' }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Priority indicators */}
+              {incident.priority_indicators && incident.priority_indicators.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Priority Indicators
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {incident.priority_indicators.map((ind, i) => (
+                      <span key={i} style={{ padding: '3px 10px', background: '#F3F4F6', borderRadius: 9999, fontSize: 11, fontWeight: 500, color: '#374151' }}>
+                        {ind}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Transcript */}
+              {incident.raw_transcript && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Raw Transcript
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.7, background: '#F9FAFB', borderRadius: 10, padding: '10px 14px', fontStyle: 'italic' }}>
+                    "{incident.raw_transcript}"
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ML Predictions */}
+            {pred && (
+              <div className="card">
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                  ML Model Predictions
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16 }}>
+                  {[
+                    {
+                      label: 'Priority',
+                      value: pred.predicted_priority,
+                      sub: pred.priority_confidence != null
+                        ? `${Math.round(pred.priority_confidence * 100)}% confidence`
+                        : '',
+                    },
+                    {
+                      label: 'Est. Resolution',
+                      value: `${pred.predicted_resolution_minutes ?? '—'} min`,
+                      sub: 'predicted duration',
+                    },
+                    {
+                      label: 'Road Closure',
+                      value: pred.road_closure_recommendation ?? '—',
+                      sub: pred.road_closure_probability != null
+                        ? `${Math.round(pred.road_closure_probability * 100)}% probability`
+                        : '',
+                    },
+                  ].map(({ label, value, sub }) => (
+                    <div key={label} style={{ background: '#F9FAFB', borderRadius: 14, padding: '14px 16px' }}>
+                      <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                        {label}
+                      </div>
+                      <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#111111' }}>{value}</div>
+                      {sub && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{sub}</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Priority reasons */}
+                {pred.priority_reasons && pred.priority_reasons.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Priority Reasons</div>
+                    {pred.priority_reasons.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: '#374151', marginBottom: 3 }}>
+                        <Check size={12} style={{ color: '#059669', marginTop: 2, flexShrink: 0 }} /> {r}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Closure reasons */}
+                {pred.closure_reasons && pred.closure_reasons.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Closure Reasons</div>
+                    {pred.closure_reasons.map((r, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: '#374151', marginBottom: 3 }}>
+                        <AlertTriangle size={12} style={{ color: '#D97706', marginTop: 2, flexShrink: 0 }} /> {r}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Map */}
+            {incident.latitude && incident.longitude ? (
+              <div className="card" style={{ padding: 0, overflow: 'hidden', height: 340 }}>
+                <BengaluruMap
+                  incidents={[incident as Incident]}
+                  height="100%"
+                  showLayerControls={false}
+                />
+              </div>
+            ) : (
+              <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#9CA3AF', fontSize: 13, height: 100 }}>
+                <MapPin size={16} /> No location data available for this incident
+              </div>
+            )}
+          </div>
+
+          {/* ── Right column — Historical incidents ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #E5E5E5' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Similar Historical Incidents
+                </div>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                  Based on location, type, and cause
+                </div>
+              </div>
+
+              {histLoading ? (
+                <LoadingState size="sm" message="Searching similar cases…" />
+              ) : historicalData && historicalData.similar_cases && historicalData.similar_cases.length > 0 ? (
+                <div>
+                  {historicalData.similar_cases.map((c, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '12px 20px',
+                        borderBottom: '1px solid #E5E5E5',
+                        cursor: 'default',
+                        transition: 'background 0.12s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 9999, fontSize: 10, fontWeight: 700,
+                          background: PRIORITY_COLORS[c.priority]?.bg ?? '#F3F4F6',
+                          color: PRIORITY_COLORS[c.priority]?.text ?? '#6B7280',
+                        }}>
+                          {c.priority}
+                        </span>
+                        <span style={{ fontSize: 10, color: '#9CA3AF' }}>
+                          {Math.round(c.similarity_score * 100)}% match
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#111111', marginBottom: 2 }}>
+                        {c.event_cause || 'Unknown cause'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6B7280' }}>{c.corridor}</div>
+                      {c.resolution_mins != null && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
+                          <Clock size={10} /> Resolved in {c.resolution_mins} min
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {historicalData.average_resolution_time && (
+                    <div style={{ padding: '10px 20px', background: '#F9FAFB', borderTop: '1px solid #E5E5E5' }}>
+                      <div style={{ fontSize: 11, color: '#6B7280' }}>
+                        Avg resolution for similar cases:{' '}
+                        <strong style={{ color: '#111111' }}>
+                          {Math.round(historicalData.average_resolution_time)} min
+                        </strong>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <EmptyState message="No similar historical incidents found." />
+              )}
+            </div>
+
+            {/* Quick actions */}
+            <div className="card">
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+                Quick Actions
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Link
+                  href={`/incidents/${incidentId}/dispatch`}
+                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5' }}
+                >
+                  <Car size={14} style={{ color: '#6B7280' }} /> View Dispatch Plan
+                </Link>
+                {isActive && (
+                  <button
+                    onClick={() => setShowAllocate(true)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5', cursor: 'pointer', textAlign: 'left' }}
+                  >
+                    <Users size={14} style={{ color: '#6B7280' }} /> Allocate Resources
+                  </button>
+                )}
+                <Link
+                  href={`/feedback?incident_id=${incidentId}`}
+                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5' }}
+                >
+                  <Check size={14} style={{ color: '#6B7280' }} /> Submit Feedback
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Allocate resources modal */}
+      {showAllocate && (
+        <AllocateModal incidentId={incidentId} onClose={() => setShowAllocate(false)} />
+      )}
+    </>
+  );
+}

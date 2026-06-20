@@ -35,7 +35,3 @@ pnpm-debug.log*
 # ML outputs
 dataset_processed
 catboost_info
-
-# Streaming audio temp files
-backend/temp_streaming_turn.webm
-*.webm

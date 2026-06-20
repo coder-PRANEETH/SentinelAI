@@ -1,10 +1,47 @@
+# ── Core Web Framework ──────────────────────────────────────────────
+flask>=3.0.0
+flask-cors
+flask-sqlalchemy
+flask-jwt-extended
+flask-limiter
+
+# ── FastAPI (existing backend/main.py — do not remove) ──────────────
 fastapi
 uvicorn
 pydantic
-faster-whisper
-python-multipart
+
+# ── Database ─────────────────────────────────────────────────────────
+psycopg2-binary
+sqlalchemy>=2.0
+
+# ── Cache / Rate Limiting ─────────────────────────────────────────────
+redis
+
+# ── Auth ──────────────────────────────────────────────────────────────
+argon2-cffi
+
+# ── Validation ───────────────────────────────────────────────────────
+marshmallow
+
+# ── ML / Data Science ─────────────────────────────────────────────────
+catboost
+numpy
+pandas
+scikit-learn
+
+# ── Vector Search ─────────────────────────────────────────────────────
+faiss-cpu
+sentence-transformers
+
+# ── LLM / AI Extraction ───────────────────────────────────────────────
 google-generativeai
-python-dotenv
-requests
 openai
+
+# ── STT ───────────────────────────────────────────────────────────────
+faster-whisper
+
+# ── Utilities ─────────────────────────────────────────────────────────
+python-dotenv
+python-multipart
+requests
 geopy
