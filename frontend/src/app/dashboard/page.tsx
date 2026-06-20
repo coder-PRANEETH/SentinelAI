@@ -155,6 +155,7 @@ export default function DashboardPage() {
     '/station-readiness', () => api.readiness.ranked(), { refreshInterval: 30000 }
   );
   const { data: activeIncidents, newIncident, clearNewIncident } = useActiveIncidentsWithNotifications();
+  const [highlightedIncidentId, setHighlightedIncidentId] = useState<string | null>(null);
 
   const top5 = (readinessData?.stations ?? []).slice(0, 5);
 
@@ -259,8 +260,21 @@ export default function DashboardPage() {
                   {(activeIncidents || []).slice(0, 8).map(inc => (
                     <tr
                       key={inc.incident_id}
-                      onClick={() => router.push(`/incidents/${inc.incident_id}`)}
-                      style={{ cursor: 'pointer' }}
+                      onClick={() => {
+                        if (inc.latitude && inc.longitude) {
+                          setHighlightedIncidentId(prev =>
+                            prev === inc.incident_id ? null : inc.incident_id
+                          );
+                        } else {
+                          router.push(`/incidents/${inc.incident_id}`);
+                        }
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        background: highlightedIncidentId === inc.incident_id ? '#F0FDF4' : undefined,
+                        outline: highlightedIncidentId === inc.incident_id ? '2px solid #B9E63F' : undefined,
+                        outlineOffset: '-1px',
+                      }}
                     >
                       <td className="font-mono text-xs text-text-2">{inc.incident_id}</td>
                       <td className="font-medium">{inc.incident_type}</td>
@@ -285,6 +299,16 @@ export default function DashboardPage() {
               <BengaluruMap
                 incidents={activeIncidents || []}
                 height="100%"
+                highlightedIncidentId={highlightedIncidentId}
+                onIncidentClick={(inc) => {
+                  if (inc.latitude && inc.longitude) {
+                    setHighlightedIncidentId(prev =>
+                      prev === inc.incident_id ? null : inc.incident_id
+                    );
+                  } else {
+                    router.push(`/incidents/${inc.incident_id}`);
+                  }
+                }}
               />
             </div>
           </div>
