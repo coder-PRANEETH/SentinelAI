@@ -1,11 +1,10 @@
 'use client';
 import { useState, useRef, useEffect, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import { CopilotPanel } from '@/components/copilot/CopilotPanel';
 import { PageHeading } from '@/components/layout/PageHeading';
-import { api, PredictResponse } from '@/lib/api';
+import { api } from '@/lib/api';
+import { predict, PredictResponse, FinalApiError } from '@/api/finalEndpointsApi';
 import { Mic, MicOff, Type, Loader2, Play, Square, Volume2, VolumeX, RotateCcw, MessageSquare } from 'lucide-react';
-import type { ApiError } from '@/lib/api';
 
 const INCIDENT_TYPES = [
   'Vehicle Breakdown', 'Road Blockage', 'Fallen Tree',
@@ -91,8 +90,6 @@ function getSupportedAudioMimeType() {
  * CRITICAL: Form MUST NOT auto-submit. Submit button requires explicit click.
  */
 export default function NewIncidentPage() {
-  const router = useRouter();
-
   // Form state
   const [transcript, setTranscript] = useState('');
   const [incidentType, setIncidentType] = useState('');
@@ -135,7 +132,6 @@ export default function NewIncidentPage() {
   const [submitError, setSubmitError] = useState('');
   const [prediction, setPrediction] = useState<PredictResponse | null>(null);
   const [predicting, setPredicting] = useState(false);
-  const [incidentId, setIncidentId] = useState<string | null>(null);
 
   // Keep chatHistoryRef updated for access in callbacks
   useEffect(() => {
@@ -504,15 +500,10 @@ export default function NewIncidentPage() {
         raw_transcript: transcript || undefined,
       };
 
-      const result = await api.predict.run(payload);
+      const result = await predict(payload);
       setPrediction(result);
-
-      if (result.incident?.incident_id) {
-        setIncidentId(result.incident.incident_id as string);
-        router.push(`/incidents/${result.incident.incident_id}?new=1`, { scroll: false });
-      }
     } catch (err) {
-      const apiErr = err as ApiError;
+      const apiErr = err as FinalApiError;
       setSubmitError(apiErr.message || 'Failed to submit incident.');
     } finally {
       setPredicting(false);
@@ -878,7 +869,6 @@ export default function NewIncidentPage() {
               <CopilotPanel
                 prediction={prediction}
                 isLoading={predicting}
-                incidentId={incidentId ?? undefined}
               />
             </div>
           </div>

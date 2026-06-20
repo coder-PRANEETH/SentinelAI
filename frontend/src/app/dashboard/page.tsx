@@ -14,6 +14,7 @@ import { useKPIs } from '@/hooks/useKPIs';
 import { useStations } from '@/hooks/useStations';
 import useSWR from 'swr';
 import { api, Incident } from '@/lib/api';
+import { listStationReadiness } from '@/api/finalEndpointsApi';
 import Link from 'next/link';
 import AnalyticsPage from '../analytics/page';
 import ResourcesPage from '../resources/page';
@@ -152,12 +153,12 @@ export default function DashboardPage() {
   const { kpis, isLoading: kpisLoading } = useKPIs(30000);
   const { stations } = useStations(30000);
   const { data: readinessData, isLoading: readinessLoading } = useSWR(
-    '/station-readiness', () => api.readiness.ranked(), { refreshInterval: 30000 }
+    '/station-readiness', () => listStationReadiness(), { refreshInterval: 30000 }
   );
   const { data: activeIncidents, newIncident, clearNewIncident } = useActiveIncidentsWithNotifications();
   const [highlightedIncidentId, setHighlightedIncidentId] = useState<string | null>(null);
 
-  const top5 = (readinessData?.stations ?? []).slice(0, 5);
+  const top5 = (readinessData ?? []).slice(0, 5);
 
   const { data: trendDataRaw, isLoading: trendsLoading } = useSWR('/analytics/trends', () => api.analytics.trends(7));
 
@@ -359,12 +360,12 @@ export default function DashboardPage() {
                 <div>
                   {top5.map(station => (
                     <div
-                      key={station.station_id}
+                      key={station.station}
                       className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised transition-colors"
                       onClick={() => router.push('/stations')}
                     >
                       <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-text-1">{station.station_name}</span>
+                        <span className="text-xs font-semibold text-text-1">{station.station}</span>
                         <span className="text-[11px] text-text-2">{station.active_incidents} active</span>
                       </div>
                       <ReadinessBar score={Number(station.readiness_score)} />

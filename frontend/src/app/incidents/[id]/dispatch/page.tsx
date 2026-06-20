@@ -5,29 +5,64 @@ import useSWR from 'swr';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { LoadingState, ErrorState } from '@/components/shared/LoadingState';
-import { api, StationCandidate, DispatchBody } from '@/lib/api';
+import {
+  getDispatchRecommendation, getStation, allocateResources,
+  FinalApiError,
+} from '@/api/finalEndpointsApi';
 import { Check, AlertTriangle, Loader2, Users, Car, Truck, Shield } from 'lucide-react';
-import type { ApiError } from '@/lib/api';
+
+interface RecommendationInputs {
+  incidentText: string;
+  corridor: string;
+  minOfficers: number;
+  minVehicles: number;
+}
 
 /**
  * Dispatch Recommendation Screen.
- * CRITICAL:
- * - Dispatch requires TWO explicit clicks (button + dialog confirm).
- * - Override requires non-empty reason field (min 20 chars).
- * - POST to /dispatch only on confirmed user action. NEVER auto-dispatches.
+ * Recommendation comes from POST /dispatch (final_endpoints). Confirm/Override
+ * commits the resource deduction via POST /stations/<station>/allocate, since
+ * final_endpoints keeps "recommend" and "commit" as separate steps.
  */
 export default function DispatchPage() {
   const params = useParams<{ id: string }>();
   const incidentId = params.id;
   const router = useRouter();
 
-  const { data: readiness, isLoading, error } = useSWR(
-    '/station-readiness',
-    () => api.readiness.ranked()
-  );
+  // Fields the user edits freely.
+  const [incidentText, setIncidentText] = useState(`Incident ${incidentId}`);
+  const [corridor, setCorridor] = useState('');
+  const [minOfficers, setMinOfficers] = useState(1);
+  const [minVehicles, setMinVehicles] = useState(1);
 
-  const candidates = readiness?.stations.slice(0, 3) ?? [];
-  const recommended = candidates[0];
+  // Snapshot only updated when "Get Recommendation" is clicked (or on first load).
+  const [submitted, setSubmitted] = useState<RecommendationInputs>({
+    incidentText: `Incident ${incidentId}`, corridor: '', minOfficers: 1, minVehicles: 1,
+  });
+
+  const { data: result, isLoading, error, mutate } = useSWR(
+    ['/dispatch', submitted],
+    async ([, inputs]: [string, RecommendationInputs]) => {
+      const res = await getDispatchRecommendation({
+        incident_text: inputs.incidentText || `Incident ${incidentId}`,
+        corridor: inputs.corridor || undefined,
+        min_officers: inputs.minOfficers,
+        min_vehicles: inputs.minVehicles,
+        search_top_k: 20,
+      });
+      const resources = await getStation(res.dispatch.recommended_station);
+      return { dispatch: res, recommendedResources: resources };
+    }
+  );
+  const loadError = error ? ((error as FinalApiError).message || 'Failed to load dispatch recommendation.') : '';
+
+  const recommendedResources = result?.recommendedResources ?? null;
+  const candidates = result?.dispatch.dispatch.top_candidates.slice(0, 5) ?? [];
+  const recommendedStation = result?.dispatch.dispatch.recommended_station;
+
+  const handleGetRecommendation = () => {
+    setSubmitted({ incidentText, corridor, minOfficers, minVehicles });
+  };
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [showOverrideDrawer, setShowOverrideDrawer] = useState(false);
@@ -38,27 +73,20 @@ export default function DispatchPage() {
   const [dispatchSuccess, setDispatchSuccess] = useState(false);
 
   const handleConfirmDispatch = async () => {
-    if (!recommended) return;
+    if (!recommendedStation || !recommendedResources) return;
     setIsDispatching(true);
     setDispatchError('');
     try {
-      const body: DispatchBody = {
-        incident_id: incidentId,
-        station_id: recommended.station_id,
-        resources_dispatched: {
-          officers: recommended.available_officers,
-          vehicles: recommended.available_vehicles,
-          tow_trucks: recommended.available_tow_trucks,
-          barricades: recommended.available_barricades,
-        },
-        override: false,
-      };
-      await api.dispatch.create(body);
+      await allocateResources(recommendedStation, {
+        officers: recommendedResources.officers,
+        vehicles: recommendedResources.vehicles,
+        tow_trucks: recommendedResources.tow_trucks,
+        barricades: recommendedResources.barricades,
+      });
       setDispatchSuccess(true);
       setTimeout(() => router.push('/dashboard'), 2000);
     } catch (err) {
-      const e = err as ApiError;
-      setDispatchError(e.message || 'Dispatch failed.');
+      setDispatchError((err as FinalApiError).message || 'Dispatch failed.');
     } finally {
       setIsDispatching(false);
       setShowConfirm(false);
@@ -66,31 +94,23 @@ export default function DispatchPage() {
   };
 
   const handleOverrideDispatch = async () => {
-    if (overrideReason.length < 20) return;
+    if (overrideReason.length < 20 || !overrideStation) return;
     setIsDispatching(true);
     setDispatchError('');
     try {
-      const body: DispatchBody = {
-        incident_id: incidentId,
-        station_id: overrideStation,
-        resources_dispatched: { officers: 2, vehicles: 1, tow_trucks: 0, barricades: 2 },
-        override: true,
-        override_reason: overrideReason,
-      };
-      await api.dispatch.create(body);
+      await allocateResources(overrideStation, { officers: 2, vehicles: 1, tow_trucks: 0, barricades: 2 });
       setDispatchSuccess(true);
       setTimeout(() => router.push('/dashboard'), 2000);
     } catch (err) {
-      const e = err as ApiError;
-      setDispatchError(e.message || 'Override dispatch failed.');
+      setDispatchError((err as FinalApiError).message || 'Override dispatch failed.');
     } finally {
       setIsDispatching(false);
       setShowOverrideDrawer(false);
     }
   };
 
-  if (isLoading) return <PageShell incidentId={incidentId}><LoadingState message="Loading station data…" /></PageShell>;
-  if (error)     return <PageShell incidentId={incidentId}><ErrorState message="Failed to load stations." /></PageShell>;
+  if (isLoading) return <PageShell incidentId={incidentId}><LoadingState message="Loading dispatch recommendation…" /></PageShell>;
+  if (loadError) return <PageShell incidentId={incidentId}><ErrorState message={loadError} onRetry={() => mutate()} /></PageShell>;
 
   if (dispatchSuccess) return (
     <PageShell incidentId={incidentId}>
@@ -117,8 +137,36 @@ export default function DispatchPage() {
       <div className="flex-1 px-7 pb-7 overflow-auto">
           <div style={{ maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
+            {/* Recommendation inputs */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Recommendation Inputs
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
+                <div className="form-group">
+                  <label className="form-label">Incident Text</label>
+                  <input className="form-input" value={incidentText} onChange={e => setIncidentText(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Corridor</label>
+                  <input className="form-input" value={corridor} onChange={e => setCorridor(e.target.value)} placeholder="e.g. Tumkur Road" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Min Officers</label>
+                  <input type="number" min={0} className="form-input" value={minOfficers} onChange={e => setMinOfficers(parseInt(e.target.value, 10) || 0)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Min Vehicles</label>
+                  <input type="number" min={0} className="form-input" value={minVehicles} onChange={e => setMinVehicles(parseInt(e.target.value, 10) || 0)} />
+                </div>
+              </div>
+              <button className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={handleGetRecommendation}>
+                Get Recommendation
+              </button>
+            </div>
+
             {/* Recommended station */}
-            {recommended && (
+            {result && (
               <div className="card" style={{ background: 'var(--lime)', border: 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                   <div>
@@ -129,7 +177,7 @@ export default function DispatchPage() {
                       AI Recommended Station
                     </div>
                     <h2 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em' }}>
-                      {recommended.station_name}
+                      {result.dispatch.dispatch.recommended_station}
                     </h2>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -137,15 +185,15 @@ export default function DispatchPage() {
                       Readiness
                     </div>
                     <div style={{ fontSize: '32px', fontWeight: 800, letterSpacing: '-0.03em' }}>
-                      {Math.round(Number(recommended.readiness_score))}
+                      {Math.round(Number(result.dispatch.dispatch.readiness_score))}
                     </div>
                   </div>
                 </div>
 
-                <ReadinessBar score={Number(recommended.readiness_score)} />
+                <ReadinessBar score={Number(result.dispatch.dispatch.readiness_score)} />
 
                 <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                  {recommended.reasons?.map((r, i) => (
+                  {result.dispatch.dispatch.reasons?.map((r, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px' }}>
                       <Check size={13} style={{ color: 'var(--ink)', marginTop: '1px', flexShrink: 0 }} />
                       {r}
@@ -156,7 +204,7 @@ export default function DispatchPage() {
             )}
 
             {/* Resource package */}
-            {recommended && (
+            {recommendedResources && (
               <div className="card">
                 <div style={{
                   fontSize: '11px', fontWeight: 700, color: 'var(--muted)',
@@ -166,10 +214,10 @@ export default function DispatchPage() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                   {[
-                    { icon: <Users size={18} />, count: recommended.available_officers, label: 'Officers' },
-                    { icon: <Car size={18} />,   count: recommended.available_vehicles,  label: 'Vehicles' },
-                    { icon: <Truck size={18} />, count: recommended.available_tow_trucks, label: 'Tow Trucks' },
-                    { icon: <Shield size={18} />,count: recommended.available_barricades, label: 'Barricades' },
+                    { icon: <Users size={18} />, count: recommendedResources.officers, label: 'Officers' },
+                    { icon: <Car size={18} />,   count: recommendedResources.vehicles,  label: 'Vehicles' },
+                    { icon: <Truck size={18} />, count: recommendedResources.tow_trucks, label: 'Tow Trucks' },
+                    { icon: <Shield size={18} />,count: recommendedResources.barricades, label: 'Barricades' },
                   ].map(({ icon, count, label }) => (
                     <div key={label} style={{
                       background: 'var(--bg)', borderRadius: '14px', padding: '14px',
@@ -180,6 +228,21 @@ export default function DispatchPage() {
                       <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 500 }}>{label}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Historical context */}
+            {result?.dispatch.historical_context && (
+              <div className="card" style={{ padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                  Historical Context
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: 1.7 }}>
+                  Similar cases: <strong>{result.dispatch.historical_context.similar_cases}</strong> &nbsp;·&nbsp;
+                  Avg resolution: <strong>{result.dispatch.historical_context.average_resolution_time ?? '—'} min</strong> &nbsp;·&nbsp;
+                  Common priority: <strong>{result.dispatch.historical_context.historical_priority ?? 'Unknown'}</strong> &nbsp;·&nbsp;
+                  Common outcome: <strong>{result.dispatch.historical_context.most_common_outcome ?? 'Unknown'}</strong>
                 </div>
               </div>
             )}
@@ -205,7 +268,7 @@ export default function DispatchPage() {
                 </thead>
                 <tbody>
                   {candidates.map((s, i) => (
-                    <tr key={s.station_id}>
+                    <tr key={s.station}>
                       <td>
                         {i === 0 && (
                           <span style={{
@@ -215,14 +278,14 @@ export default function DispatchPage() {
                             marginRight: '8px',
                           }}>★</span>
                         )}
-                        <span style={{ fontWeight: i === 0 ? 600 : 400 }}>{s.station_name}</span>
+                        <span style={{ fontWeight: i === 0 ? 600 : 400 }}>{s.station}</span>
                       </td>
                       <td style={{ minWidth: '140px' }}>
-                        <ReadinessBar score={Number(s.readiness_score)} />
+                        <ReadinessBar score={Number(s.readiness_pct)} />
                       </td>
-                      <td>{s.available_officers}</td>
-                      <td>{s.available_vehicles}</td>
-                      <td>{s.active_incidents}</td>
+                      <td>{s.officers}</td>
+                      <td>{s.vehicles}</td>
+                      <td>{s.active}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -249,7 +312,7 @@ export default function DispatchPage() {
                 className="btn-accent"
                 style={{ flex: 1, justifyContent: 'center', padding: '14px', fontSize: '14px' }}
                 onClick={() => setShowConfirm(true)}
-                disabled={!recommended}
+                disabled={!recommendedStation}
               >
                 Confirm Dispatch
               </button>
@@ -264,7 +327,7 @@ export default function DispatchPage() {
           </div>
 
           {/* Confirmation dialog */}
-          {showConfirm && recommended && (
+          {showConfirm && recommendedStation && recommendedResources && (
             <div className="dialog-overlay" role="dialog" aria-modal="true">
               <div className="dialog-content">
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '20px' }}>
@@ -278,9 +341,9 @@ export default function DispatchPage() {
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>Confirm Dispatch</h3>
                     <p style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.6 }}>
-                      Dispatch <strong style={{ color: 'var(--ink)' }}>{recommended.available_officers} officers</strong> and{' '}
-                      <strong style={{ color: 'var(--ink)' }}>{recommended.available_vehicles} vehicles</strong> from{' '}
-                      <strong style={{ color: 'var(--ink)' }}>{recommended.station_name}</strong> to incident{' '}
+                      Dispatch <strong style={{ color: 'var(--ink)' }}>{recommendedResources.officers} officers</strong> and{' '}
+                      <strong style={{ color: 'var(--ink)' }}>{recommendedResources.vehicles} vehicles</strong> from{' '}
+                      <strong style={{ color: 'var(--ink)' }}>{recommendedStation}</strong> to incident{' '}
                       <strong style={{ color: 'var(--ink)' }}>{incidentId}</strong>?
                       <br /><br />
                       This action deducts resources from the station and cannot be undone automatically.
@@ -326,7 +389,7 @@ export default function DispatchPage() {
                   >
                     <option value="">Choose station…</option>
                     {candidates.map(s => (
-                      <option key={s.station_id} value={s.station_id}>{s.station_name}</option>
+                      <option key={s.station} value={s.station}>{s.station}</option>
                     ))}
                   </select>
                 </div>

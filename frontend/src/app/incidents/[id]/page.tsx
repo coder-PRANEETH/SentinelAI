@@ -11,8 +11,8 @@ import {
 import { PageHeading } from '@/components/layout/PageHeading';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/LoadingState';
-import { api, IncidentDetail, Incident, AllocateBody } from '@/lib/api';
-import type { ApiError } from '@/lib/api';
+import { api, IncidentDetail, Incident } from '@/lib/api';
+import { listStationReadiness, getStation, allocateResources, historicalSearch, FinalApiError } from '@/api/finalEndpointsApi';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
@@ -47,8 +47,8 @@ function AllocateModal({
   incidentId,
   onClose,
 }: { incidentId: string; onClose: () => void }) {
-  const { data: readiness, isLoading } = useSWR('/station-readiness', () => api.readiness.ranked());
-  const candidates = readiness?.stations.slice(0, 5) ?? [];
+  const { data: readiness, isLoading } = useSWR('/station-readiness', () => listStationReadiness());
+  const candidates = readiness?.slice(0, 5) ?? [];
 
   const [selected, setSelected] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -57,25 +57,23 @@ function AllocateModal({
 
   const handleAllocate = async () => {
     if (!selected) return;
-    const station = candidates.find(s => s.station_id === selected);
+    const station = candidates.find(s => s.station === selected);
     if (!station) return;
     setSubmitting(true);
     setErr('');
     try {
-      const body: AllocateBody = {
-        incident_id: incidentId,
-        resources: {
-          officers: station.available_officers,
-          vehicles: station.available_vehicles,
-          tow_trucks: station.available_tow_trucks,
-          barricades: station.available_barricades,
-        },
-      };
-      await api.stations.allocate(station.station_id, body);
+      // Fetch full current resources (readiness omits barricades) right before committing.
+      const resources = await getStation(station.station);
+      await allocateResources(station.station, {
+        officers: resources.officers,
+        vehicles: resources.vehicles,
+        tow_trucks: resources.tow_trucks,
+        barricades: resources.barricades,
+      });
       setSuccess(true);
       setTimeout(onClose, 1500);
     } catch (e) {
-      setErr((e as ApiError).message || 'Failed to allocate resources.');
+      setErr((e as FinalApiError).message || 'Failed to allocate resources.');
     } finally {
       setSubmitting(false);
     }
@@ -108,23 +106,23 @@ function AllocateModal({
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {candidates.map(s => (
                   <label
-                    key={s.station_id}
+                    key={s.station}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
-                      border: `2px solid ${selected === s.station_id ? '#111111' : '#E5E5E5'}`,
+                      border: `2px solid ${selected === s.station ? '#111111' : '#E5E5E5'}`,
                       borderRadius: 12, cursor: 'pointer', transition: 'border-color 0.15s',
                     }}
                   >
                     <input
                       type="radio"
                       name="station"
-                      value={s.station_id}
-                      checked={selected === s.station_id}
-                      onChange={() => setSelected(s.station_id)}
+                      value={s.station}
+                      checked={selected === s.station}
+                      onChange={() => setSelected(s.station)}
                       style={{ accentColor: '#111111' }}
                     />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{s.station_name}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{s.station}</div>
                       <div style={{ fontSize: 11, color: '#6B7280' }}>
                         Readiness: {Math.round(Number(s.readiness_score))} · {s.available_officers} officers · {s.available_vehicles} vehicles
                       </div>
@@ -176,11 +174,10 @@ export default function IncidentDetailPage() {
   // Historical similar incidents
   const { data: historicalData, isLoading: histLoading } = useSWR(
     incident?.corridor ? `/historical/${incidentId}` : null,
-    () => api.historical.search({
-      query_text: `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
-      top_k: 5,
-      min_similarity: 0.3,
-    }),
+    () => historicalSearch(
+      `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
+      5
+    ),
     { revalidateOnFocus: false }
   );
 

@@ -3,36 +3,54 @@ import { useState, Suspense } from 'react';
 import useSWR from 'swr';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/LoadingState';
-import { api, Station } from '@/lib/api';
+import { Station } from '@/lib/api';
+import { useStations } from '@/hooks/useStations';
+import {
+  getStation, getStationReadiness, allocateResources, releaseResources,
+  STATION_RESOURCE_CAPS, FinalApiError,
+} from '@/api/finalEndpointsApi';
 import { useSearchParams } from 'next/navigation';
-import { Pencil, Check, X, Package } from 'lucide-react';
-import type { ApiError } from '@/lib/api';
+import { ArrowUpCircle, ArrowDownCircle, Loader2, Package } from 'lucide-react';
 
 /**
  * Resource Command Center.
- * - Station Officer: sees only their home station.
- * - Admin/Supervisor: station selector dropdown.
- * - [Edit] opens inline edit (not a modal).
- * - Confirm dialog before any inventory reduction.
- * - Available counts are read-only (calculated from total minus deployed).
+ * - Station selector dropdown.
+ * - Allocate / Release actions per resource type (final_endpoints has no
+ *   route to change a station's total caps, so inventory limits are read-only).
  */
 function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {}) {
   const params = useSearchParams();
   const defaultStation = params.get('station') ?? '';
 
-  const { data: stations } = useSWR('/stations', () => api.stations.list());
+  const { stations } = useStations(30000);
   const [selectedStation, setSelectedStation] = useState(defaultStation);
 
   const { data: station, isLoading, error, mutate } = useSWR<Station>(
     selectedStation ? `/stations/${selectedStation}` : null,
-    () => api.stations.get(selectedStation)
+    async () => {
+      const [resources, readiness] = await Promise.all([
+        getStation(selectedStation),
+        getStationReadiness(selectedStation),
+      ]);
+      const r = Array.isArray(readiness) ? undefined : readiness;
+      return {
+        station_id: resources.station,
+        station_name: resources.station,
+        latitude: null,
+        longitude: null,
+        readiness_score: r?.readiness_score ?? 0,
+        available_officers: resources.officers,
+        available_vehicles: resources.vehicles,
+        available_tow_trucks: resources.tow_trucks,
+        available_barricades: resources.barricades,
+        active_incidents: r?.active_incidents ?? 0,
+        total_officers: STATION_RESOURCE_CAPS.officers,
+        total_vehicles: STATION_RESOURCE_CAPS.vehicles,
+        total_tow_trucks: STATION_RESOURCE_CAPS.tow_trucks,
+        total_barricades: STATION_RESOURCE_CAPS.barricades,
+      };
+    }
   );
-
-  const [editRow, setEditRow] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<{ type: string; newTotal: number } | null>(null);
-  const [saveError, setSaveError] = useState('');
 
   const resourceRows = station ? [
     { type: 'officers', label: 'Officers', total: station.total_officers ?? 0, available: station.available_officers },
@@ -41,35 +59,37 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
     { type: 'barricades', label: 'Barricades', total: station.total_barricades ?? 0, available: station.available_barricades },
   ] : [];
 
-  const handleEditClick = (type: string, current: number) => {
-    setEditRow(type);
-    setEditValue(String(current));
-    setSaveError('');
+  const [actionQty, setActionQty] = useState<Record<string, string>>({});
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [actionSuccess, setActionSuccess] = useState('');
+
+  const getQty = (type: string) => {
+    const n = parseInt(actionQty[type] ?? '1', 10);
+    return isNaN(n) || n <= 0 ? null : n;
   };
 
-  const handleSave = (type: string, currentTotal: number) => {
-    const newTotal = parseInt(editValue, 10);
-    if (isNaN(newTotal) || newTotal < 0) { setSaveError('Invalid value.'); return; }
+  const runAction = async (type: string, label: string, kind: 'allocate' | 'release') => {
+    const qty = getQty(type);
+    if (qty == null) { setActionError('Enter a valid quantity.'); return; }
 
-    // Require confirm if reducing
-    if (newTotal < currentTotal) {
-      setPendingEdit({ type, newTotal });
-      setShowConfirm(true);
-    } else {
-      commitEdit(type, newTotal);
-    }
-  };
-
-  const commitEdit = async (type: string, newTotal: number) => {
+    setActionLoading(`${type}-${kind}`);
+    setActionError('');
+    setActionSuccess('');
     try {
-      if (selectedStation) {
-        await api.stations.update(selectedStation, { [`total_${type}`]: newTotal });
+      if (kind === 'allocate') {
+        await allocateResources(selectedStation, { [type]: qty });
+        setActionSuccess(`Allocated ${qty} ${label.toLowerCase()} from ${station?.station_name}.`);
+      } else {
+        await releaseResources(selectedStation, { [type]: qty });
+        setActionSuccess(`Released ${qty} ${label.toLowerCase()} back to ${station?.station_name}.`);
       }
+      mutate();
     } catch (e) {
-      setSaveError('Failed to update limits.');
+      setActionError((e as FinalApiError).message || `Failed to ${kind} resources.`);
+    } finally {
+      setActionLoading(null);
     }
-    setEditRow(null);
-    mutate();
   };
 
   return (
@@ -105,10 +125,10 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                 className="form-input"
                 style={{ borderRadius: '9999px', height: '38px', padding: '0 14px' }}
                 value={selectedStation}
-                onChange={e => setSelectedStation(e.target.value)}
+                onChange={e => { setSelectedStation(e.target.value); setActionError(''); setActionSuccess(''); }}
               >
                 <option value="">Choose a station…</option>
-                {(stations ?? []).map(s => (
+                {stations.map(s => (
                   <option key={s.station_id} value={s.station_id}>{s.station_name}</option>
                 ))}
               </select>
@@ -125,7 +145,7 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
           {selectedStation && error && <ErrorState message="Failed to load station." onRetry={mutate} />}
 
           {station && (
-            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px' }}>
+            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '900px' }}>
               <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ fontSize: '14px', fontWeight: 700 }}>{station.station_name}</h2>
                 <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
@@ -140,61 +160,49 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                     <th>Total</th>
                     <th>Available</th>
                     <th>Deployed</th>
-                    <th>Action</th>
+                    <th style={{ minWidth: '220px' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resourceRows.map(row => {
                     const deployed = row.total - row.available;
-                    const isEditing = editRow === row.type;
+                    const allocating = actionLoading === `${row.type}-allocate`;
+                    const releasing = actionLoading === `${row.type}-release`;
                     return (
                       <tr key={row.type}>
                         <td style={{ fontWeight: 500 }}>{row.label}</td>
-                        <td>
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min={0}
-                              value={editValue}
-                              onChange={e => setEditValue(e.target.value)}
-                              className="form-input"
-                              style={{ width: '80px', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', height: 'auto' }}
-                              autoFocus
-                            />
-                          ) : (
-                            row.total
-                          )}
-                        </td>
+                        <td>{row.total}</td>
                         <td style={{ color: 'var(--muted)' }}>{row.available}</td>
                         <td style={{ color: deployed > 0 ? 'var(--warn)' : 'var(--muted)' }}>
                           {deployed}
                         </td>
                         <td>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <button
-                                onClick={() => handleSave(row.type, row.total)}
-                                style={{ padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ok)' }}
-                              >
-                                <Check size={14} />
-                              </button>
-                              <button
-                                onClick={() => { setEditRow(null); setSaveError(''); }}
-                                style={{ padding: '4px 8px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ) : (
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              min={1}
+                              value={actionQty[row.type] ?? '1'}
+                              onChange={e => setActionQty(prev => ({ ...prev, [row.type]: e.target.value }))}
+                              className="form-input"
+                              style={{ width: '56px', padding: '6px 8px', borderRadius: '8px', fontSize: '13px', height: 'auto' }}
+                            />
                             <button
-                              onClick={() => handleEditClick(row.type, row.total)}
-                              style={{ padding: '6px 12px', border: '1px solid var(--color-border)', borderRadius: '9999px', background: '#FFFFFF', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#111111', transition: 'background 0.15s' }}
-                              onMouseEnter={(e) => e.currentTarget.style.background = '#F5F5F3'}
-                              onMouseLeave={(e) => e.currentTarget.style.background = '#FFFFFF'}
+                              onClick={() => runAction(row.type, row.label, 'allocate')}
+                              disabled={allocating || releasing}
+                              title="Allocate (deduct from available)"
+                              style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: '9999px', background: '#FFFFFF', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#111111' }}
                             >
-                              <Pencil size={12} /> Edit
+                              {allocating ? <Loader2 size={12} className="animate-spin" /> : <ArrowUpCircle size={12} />} Allocate
                             </button>
-                          )}
+                            <button
+                              onClick={() => runAction(row.type, row.label, 'release')}
+                              disabled={allocating || releasing}
+                              title="Release (return to available)"
+                              style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: '9999px', background: '#FFFFFF', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#111111' }}
+                            >
+                              {releasing ? <Loader2 size={12} className="animate-spin" /> : <ArrowDownCircle size={12} />} Release
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -202,28 +210,12 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                 </tbody>
               </table>
 
-              {saveError && (
-                <div style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--p1)' }}>{saveError}</div>
+              {actionError && (
+                <div style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--p1)' }}>{actionError}</div>
               )}
-            </div>
-          )}
-
-          {/* Reduction confirm dialog */}
-          {showConfirm && pendingEdit && (
-            <div className="dialog-overlay">
-              <div className="dialog-content">
-                <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '12px' }}>Confirm Inventory Reduction</h3>
-                <p style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '20px' }}>
-                  Reducing <strong>{pendingEdit.type}</strong> total to <strong>{pendingEdit.newTotal}</strong>.
-                  This change will be logged. Are you sure?
-                </p>
-                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                  <button className="btn-secondary" onClick={() => { setShowConfirm(false); setEditRow(null); }}>Cancel</button>
-                  <button className="btn-danger" onClick={() => { commitEdit(pendingEdit.type, pendingEdit.newTotal); setShowConfirm(false); }}>
-                    Confirm Reduction
-                  </button>
-                </div>
-              </div>
+              {actionSuccess && (
+                <div style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--ok)' }}>{actionSuccess}</div>
+              )}
             </div>
           )}
       </div>

@@ -3,9 +3,9 @@ import { useState, FormEvent } from 'react';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { LoadingState, EmptyState } from '@/components/shared/LoadingState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { api, HistoricalSearchResponse, SimilarCase } from '@/lib/api';
+import { historicalSearch, HistoricalSearchResponse } from '@/api/finalEndpointsApi';
+import type { FinalApiError } from '@/api/finalEndpointsApi';
 import { Search, AlertTriangle, ChevronDown, ChevronRight, Clock } from 'lucide-react';
-import type { ApiError } from '@/lib/api';
 
 /**
  * Historical Incident Viewer.
@@ -13,9 +13,11 @@ import type { ApiError } from '@/lib/api';
  * Min 3 characters before search enabled.
  * Low confidence warning when < 3 results.
  */
+type HistoryResults = HistoricalSearchResponse & { low_confidence_warning: boolean };
+
 export default function HistoryPage({ hideHeading = false }: { hideHeading?: boolean }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<HistoricalSearchResponse | null>(null);
+  const [results, setResults] = useState<HistoryResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState('');
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
@@ -28,10 +30,10 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
     setResults(null);
 
     try {
-      const res = await api.historical.search({ query_text: query.trim(), top_k: 15 });
-      setResults(res);
+      const res = await historicalSearch(query.trim(), 15);
+      setResults({ ...res, low_confidence_warning: res.total_similar < 3 });
     } catch (err) {
-      const e = err as ApiError;
+      const e = err as FinalApiError;
       setError(e.message || 'Search failed.');
     } finally {
       setIsSearching(false);
@@ -132,7 +134,8 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
               <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
                 Found <strong>{results.total_similar}</strong> similar incidents &nbsp;·&nbsp;
                 Avg resolution: <strong>{results.average_resolution_time ?? '—'} min</strong> &nbsp;·&nbsp;
-                Most common priority: <strong>{results.historical_priority ?? '—'}</strong>
+                Most common priority: <strong>{results.historical_priority ?? '—'}</strong> &nbsp;·&nbsp;
+                Most common outcome: <strong>{results.most_common_outcome ?? '—'}</strong>
               </div>
 
               {/* Results table */}
