@@ -35,7 +35,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw { message: 'Could not reach the final_endpoints server. Is it running?', status: 0 } as FinalApiError;
   }
 
-  const body = await response.json().catch(() => ({}));
+  let body: any = {};
+  try {
+    const text = await response.text();
+    // Python's jsonify sometimes outputs NaN, which is invalid JSON.
+    const safeText = text.replace(/:\s*NaN/g, ': null');
+    body = JSON.parse(safeText);
+  } catch {
+    body = {};
+  }
 
   if (!response.ok) {
     throw { message: body.error || 'Request failed.', status: response.status } as FinalApiError;

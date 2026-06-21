@@ -3,16 +3,17 @@ import dynamic from 'next/dynamic';
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 import {
   AlertTriangle, ArrowLeft, Clock, MapPin, Users, Car, Truck,
-  Shield, ExternalLink, Loader2, Check, X, Navigation
+  Shield, ExternalLink, Loader2, Check, X, Navigation, Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/LoadingState';
+import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api, IncidentDetail, Incident } from '@/lib/api';
-import { listStationReadiness, getStation, allocateResources, historicalSearch, FinalApiError } from '@/api/finalEndpointsApi';
+import { listStationReadiness, getStation, allocateResources, historicalSearch, getDispatchRecommendation, FinalApiError } from '@/api/finalEndpointsApi';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
@@ -157,6 +158,183 @@ function AllocateModal({
   );
 }
 
+// ── Recommended Station Panel ───────────────────────────────────────────────
+
+function RecommendedStationPanel({ incident, incidentId }: { incident: any, incidentId: string }) {
+  const { data: result, isLoading, error } = useSWR(
+    incident ? ['/dispatch', incidentId] : null,
+    async () => {
+      const res = await getDispatchRecommendation({
+        incident_text: incident.raw_transcript || incident.incident_type || `Incident ${incidentId}`,
+        corridor: incident.corridor || undefined,
+        min_officers: 1,
+        min_vehicles: 1,
+        search_top_k: 8,
+      });
+      return res; // returns { dispatch, historical_context }
+    },
+    { revalidateOnFocus: false }
+  );
+
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchSuccess, setDispatchSuccess] = useState(false);
+  const [dispatchErr, setDispatchErr] = useState('');
+  const [showCandidates, setShowCandidates] = useState(false);
+  const { mutate } = useSWRConfig();
+
+  const handleDirectDispatch = async () => {
+    if (!result?.dispatch?.recommended_station) return;
+    setIsDispatching(true);
+    setDispatchErr('');
+    try {
+      const resources = await getStation(result.dispatch.recommended_station);
+      await allocateResources(result.dispatch.recommended_station, {
+        officers: resources.officers || 2, // fallback defaults
+        vehicles: resources.vehicles || 1,
+        tow_trucks: resources.tow_trucks || 0,
+        barricades: resources.barricades || 0,
+      });
+      setDispatchSuccess(true);
+      // Immediately reflect state updates globally where applicable
+      mutate('/station-readiness');
+    } catch (e) {
+      setDispatchErr((e as FinalApiError).message || 'Failed to dispatch.');
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="card" style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
+        <LoadingState message="Generating AI station recommendation…" size="sm" />
+      </div>
+    );
+  }
+
+  if (error || !result) {
+    const errMessage = error instanceof Error ? error.message : (error?.message || 'Unknown error');
+    return (
+      <div className="card" style={{ padding: 16 }}>
+        <ErrorState message={`Failed to load recommended station: ${errMessage}`} />
+      </div>
+    );
+  }
+
+  const { dispatch, historical_context } = result;
+
+  return (
+    <div className="card" style={{ background: 'var(--lime)', border: 'none' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+        <div>
+          <div style={{
+            fontSize: '10px', fontWeight: 700, color: 'rgba(17,17,17,0.5)',
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: 4
+          }}>
+            <Zap size={10} /> AI Recommended Station
+          </div>
+          <h2 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em' }}>
+            {dispatch.recommended_station}
+          </h2>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: '10px', color: 'rgba(17,17,17,0.5)', marginBottom: '2px' }}>
+            Readiness
+          </div>
+          <div style={{ fontSize: '32px', fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 }}>
+            {Math.round(Number(dispatch.readiness_score))}
+          </div>
+        </div>
+      </div>
+
+      <ReadinessBar score={Number(dispatch.readiness_score)} />
+
+      {dispatch.reasons && dispatch.reasons.length > 0 && (
+        <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          {dispatch.reasons.map((r: string, i: number) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: 'var(--ink)' }}>
+              <Check size={13} style={{ color: 'var(--ink)', marginTop: '1px', flexShrink: 0 }} />
+              {r}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Historical Context */}
+      {historical_context && (
+        <div style={{ marginTop: '16px', background: 'rgba(255,255,255,0.4)', borderRadius: '10px', padding: '12px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(17,17,17,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+            Historical Context
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--ink)', lineHeight: 1.6 }}>
+            Similar cases: <strong>{historical_context.similar_cases}</strong> &nbsp;·&nbsp;
+            Avg resolution: <strong>{historical_context.average_resolution_time ?? '—'} min</strong><br/>
+            Priority: <strong>{historical_context.historical_priority ?? 'Unknown'}</strong> &nbsp;·&nbsp;
+            Outcome: <strong>{historical_context.most_common_outcome ?? 'Unknown'}</strong>
+          </div>
+        </div>
+      )}
+
+      {/* Candidates toggle */}
+      {dispatch.top_candidates && dispatch.top_candidates.length > 1 && (
+        <div style={{ marginTop: '12px' }}>
+          <button 
+            onClick={() => setShowCandidates(!showCandidates)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: 'rgba(17,17,17,0.6)', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}
+          >
+            {showCandidates ? 'Hide' : 'Show'} alternative candidates {showCandidates ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+          
+          {showCandidates && (
+            <div style={{ marginTop: '8px', background: 'rgba(255,255,255,0.4)', borderRadius: '10px', overflow: 'hidden' }}>
+              <table className="data-table" style={{ fontSize: '11px', background: 'transparent' }}>
+                <tbody>
+                  {dispatch.top_candidates.slice(1, 4).map((s: any) => (
+                    <tr key={s.station}>
+                      <td style={{ padding: '6px 10px', fontWeight: 600, borderColor: 'rgba(17,17,17,0.05)' }}>{s.station}</td>
+                      <td style={{ padding: '6px 10px', borderColor: 'rgba(17,17,17,0.05)' }}>{Math.round(s.readiness_pct)}% ready</td>
+                      <td style={{ padding: '6px 10px', borderColor: 'rgba(17,17,17,0.05)' }}>{s.active} active</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Action */}
+      <div style={{ marginTop: '16px' }}>
+        {dispatchSuccess ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.5)', borderRadius: '10px', fontSize: '13px', fontWeight: 600, color: '#059669' }}>
+            <Check size={16} /> Dispatched successfully
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              onClick={handleDirectDispatch}
+              disabled={isDispatching}
+              style={{
+                background: '#111111', color: '#FFFFFF', border: 'none', padding: '12px', borderRadius: '10px',
+                fontSize: '13px', fontWeight: 600, cursor: isDispatching ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%'
+              }}
+            >
+              {isDispatching ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+              {isDispatching ? 'Dispatching...' : `Dispatch to ${dispatch.recommended_station}`}
+            </button>
+            {dispatchErr && (
+              <div style={{ fontSize: '12px', color: '#DC2626', fontWeight: 500 }}>
+                {dispatchErr}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function IncidentDetailPage() {
@@ -270,7 +448,7 @@ export default function IncidentDetailPage() {
                     className="btn-primary"
                     style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}
                   >
-                    <ExternalLink size={14} /> Dispatch
+                    <ExternalLink size={14} /> Full Dispatch Plan
                   </Link>
                 </div>
               </div>
@@ -395,6 +573,11 @@ export default function IncidentDetailPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Recommended Station Panel */}
+            {isActive && (
+              <RecommendedStationPanel incident={incident} incidentId={incidentId} />
             )}
 
             {/* Map */}
