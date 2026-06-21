@@ -11,7 +11,7 @@ import logging
 # Ensure backend/ is on sys.path when running directly
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask
+from flask import Flask, current_app, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
@@ -44,12 +44,42 @@ def create_app(config_override: dict = None) -> Flask:
         app.config.update(config_override)
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    # When this Flask app is mounted as a WSGI sub-app inside FastAPI
-    # (WSGI_MOUNTED=1), FastAPI's CORSMiddleware handles all preflight
-    # requests and response headers globally, so we skip Flask-CORS here to
-    # avoid double-setting Access-Control-* headers.
-    if not os.getenv("WSGI_MOUNTED"):
-        CORS(app, origins=cfg.CORS_ORIGINS)
+    # Keep Flask self-sufficient for mounted deployments.
+    # FastAPI also applies CORS at the ASGI layer, but the mounted Flask app
+    # now answers preflight requests and emits its own CORS headers so the
+    # browser does not depend on the mount boundary for OPTIONS handling.
+    CORS(
+        app,
+        origins=cfg.CORS_ORIGINS,
+        supports_credentials=True,
+        vary_header=True,
+    )
+
+    @app.before_request
+    def log_incoming_request():
+        origin = request.headers.get("Origin")
+        logger.info(
+            "[Flask] -> %s %s origin=%s",
+            request.method,
+            request.path,
+            origin,
+        )
+        if request.method == "OPTIONS":
+            # Let Flask answer preflight directly so decorated views never need
+            # to deal with anonymous OPTIONS requests.
+            return current_app.make_default_options_response()
+
+    @app.after_request
+    def log_outgoing_response(response):
+        origin = request.headers.get("Origin")
+        logger.info(
+            "[Flask] <- %s %s %s origin=%s",
+            request.method,
+            request.path,
+            response.status_code,
+            origin,
+        )
+        return response
 
     # ── SQLAlchemy ───────────────────────────────────────────────────────────
     from models.base import db

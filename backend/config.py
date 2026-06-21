@@ -121,4 +121,21 @@ RATELIMIT_STORAGE_URL = REDIS_URL
 # ─────────────────────────────────────────────────────────────────────────────
 
 API_VERSION = "1.0.0"
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+
+
+def _parse_cors_origins(raw_value: str):
+    """
+    Normalize CORS origins from env.
+
+    Accepts:
+    - "*" for wildcard matching
+    - a single origin string
+    - a comma-separated list of origins
+    """
+    value = (raw_value or "").strip()
+    if not value or value == "*":
+        return "*"
+    return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+
+CORS_ORIGINS = _parse_cors_origins(os.getenv("CORS_ORIGINS", "*"))

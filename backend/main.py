@@ -47,8 +47,8 @@ app = FastAPI(title="SentinelAI Incident Copilot Backend")
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # Single unified CORS policy covering both FastAPI and the Flask sub-app.
-# Flask-CORS is NOT initialised inside create_app() when mounted here, so
-# FastAPI's CORSMiddleware is the sole CORS layer.
+# The mounted Flask app also enables CORS now so preflight requests are
+# handled correctly even when the browser reaches the WSGI sub-app directly.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -60,6 +60,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_http_traffic(request, call_next):
+    origin = request.headers.get("origin")
+    logger.info(
+        "[FastAPI] -> %s %s origin=%s",
+        request.method,
+        request.url.path,
+        origin,
+    )
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception(
+            "[FastAPI] !! %s %s origin=%s",
+            request.method,
+            request.url.path,
+            origin,
+        )
+        raise
+    logger.info(
+        "[FastAPI] <- %s %s %s origin=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        origin,
+    )
+    return response
 
 # Create temp_uploads folder if it doesn't exist
 TEMP_UPLOADS_DIR = "temp_uploads"
