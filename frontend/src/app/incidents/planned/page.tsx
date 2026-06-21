@@ -26,6 +26,7 @@ export default function PlannedEventPage() {
     
     setIsSubmitting(true);
     try {
+      console.log("BUTTON CLICKED");
       // 1. Get severity/impact assessment via /predict
       const predictRes = await api.predict.run({
         raw_transcript: `Planned Event: ${eventCause} at ${location}. Details: ${description}. Scale: ${scale}.`,
@@ -34,11 +35,16 @@ export default function PlannedEventPage() {
       });
       
       // 2. Get historical context & resource recommendation via /dispatch
-      const dispatchRes = await getDispatchRecommendation({
+      const payload = {
         incident_text: `Planned Event: ${eventCause} at ${location}. Details: ${description}.`,
         corridor: corridor || undefined,
         search_top_k: 20,
-      });
+      };
+      console.log("PAYLOAD", payload);
+      console.log("BEFORE FETCH");
+      const dispatchRes = await getDispatchRecommendation(payload);
+      console.log("AFTER FETCH");
+      console.log("RESPONSE", dispatchRes);
       
       const resources = await getStation(dispatchRes.dispatch.recommended_station);
       
@@ -50,6 +56,7 @@ export default function PlannedEventPage() {
         stationResources: resources,
       });
     } catch (err) {
+      console.error("REQUEST FAILED", err);
       console.error(err);
       alert('Failed to generate forecast.');
     } finally {

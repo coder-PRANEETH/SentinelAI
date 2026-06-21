@@ -38,6 +38,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   try {
     if (shouldLog) {
       console.info(`[finalEndpointsApi] -> ${options.method || 'GET'} ${path} body_bytes=${bodySize}`);
+      console.log("BEFORE FETCH");
     }
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
@@ -46,8 +47,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         ...(options.headers as Record<string, string> || {}),
       },
     });
-  } catch {
     if (shouldLog) {
+      console.log("AFTER FETCH");
+      console.log("RESPONSE", response);
+    }
+  } catch (err) {
+    if (shouldLog) {
+      console.error("REQUEST FAILED", err);
       console.info(`[finalEndpointsApi] !! fetch failed ${path} duration_ms=${Math.round(performance.now() - startedAt)}`);
     }
     throw { message: 'Could not reach the final_endpoints server. Is it running?', status: 0 } as FinalApiError;

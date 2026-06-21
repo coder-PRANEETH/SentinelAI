@@ -164,15 +164,25 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
   const { data: result, isLoading, error } = useSWR(
     incident ? ['/dispatch', incidentId] : null,
     async () => {
-      const res = await getDispatchRecommendation({
+      const payload = {
         incident_id: incidentId,
         incident_text: incident.raw_transcript || incident.incident_type || `Incident ${incidentId}`,
         corridor: incident.corridor || undefined,
         min_officers: 1,
         min_vehicles: 1,
         search_top_k: 8,
-      });
-      return res; // returns { dispatch, historical_context }
+      };
+      console.log("PAYLOAD", payload);
+      console.log("BEFORE FETCH");
+      try {
+        const res = await getDispatchRecommendation(payload);
+        console.log("AFTER FETCH");
+        console.log("RESPONSE", res);
+        return res; // returns { dispatch, historical_context }
+      } catch (err) {
+        console.error("REQUEST FAILED", err);
+        throw err;
+      }
     },
     { revalidateOnFocus: false }
   );
@@ -369,10 +379,23 @@ export default function IncidentDetailPage() {
   // Historical similar incidents
   const { data: historicalData, isLoading: histLoading } = useSWR(
     incident?.corridor ? `/historical/${incidentId}` : null,
-    () => historicalSearch(
-      `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
-      5
-    ),
+    async () => {
+      const payload = {
+        query: `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
+        top_k: 5,
+      };
+      console.log("PAYLOAD", payload);
+      console.log("BEFORE FETCH");
+      try {
+        const res = await historicalSearch(payload.query, payload.top_k);
+        console.log("AFTER FETCH");
+        console.log("RESPONSE", res);
+        return res;
+      } catch (err) {
+        console.error("REQUEST FAILED", err);
+        throw err;
+      }
+    },
     { revalidateOnFocus: false }
   );
 
