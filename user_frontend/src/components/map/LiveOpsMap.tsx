@@ -158,6 +158,11 @@ const INCIDENTS: [number, number][] = [
   [77.7, 12.96],
 ];
 
+type IncidentMarker = {
+  id: string;
+  coordinates: [number, number];
+};
+
 type Vehicle = {
   route: [number, number][];
   color: string;
@@ -252,6 +257,12 @@ export function LiveOpsMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [tilesConfirmed, setTilesConfirmed] = useState(false);
+  const [incidentMarkers, setIncidentMarkers] = useState<IncidentMarker[]>(
+    INCIDENTS.map((coordinates, index) => ({
+      id: `seed-${index}`,
+      coordinates,
+    }))
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -390,10 +401,10 @@ export function LiveOpsMap() {
         type: "geojson",
         data: {
           type: "FeatureCollection",
-          features: INCIDENTS.map((c) => ({
+          features: incidentMarkers.map((marker) => ({
             type: "Feature" as const,
-            properties: {},
-            geometry: { type: "Point" as const, coordinates: c },
+            properties: { id: marker.id },
+            geometry: { type: "Point" as const, coordinates: marker.coordinates },
           })),
         },
       });
@@ -506,6 +517,52 @@ export function LiveOpsMap() {
       map.remove();
       mapRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const src = map.getSource("ops-incidents") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+
+    src.setData({
+      type: "FeatureCollection",
+      features: incidentMarkers.map((marker) => ({
+        type: "Feature" as const,
+        properties: { id: marker.id },
+        geometry: { type: "Point" as const, coordinates: marker.coordinates },
+      })),
+    });
+  }, [incidentMarkers]);
+
+  useEffect(() => {
+    const handleIncident = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        incident_id?: string;
+        latitude?: number | null;
+        longitude?: number | null;
+      }>).detail;
+
+      if (!detail?.incident_id || detail.latitude == null || detail.longitude == null) return;
+
+      setIncidentMarkers((current) => {
+        if (current.some((marker) => marker.id === detail.incident_id)) {
+          return current;
+        }
+
+        return [
+          ...current,
+          {
+            id: detail.incident_id,
+            coordinates: [detail.longitude as number, detail.latitude as number],
+          },
+        ];
+      });
+    };
+
+    window.addEventListener("sentinel:new-incident", handleIncident);
+    return () => window.removeEventListener("sentinel:new-incident", handleIncident);
   }, []);
 
   return (

@@ -1,7 +1,7 @@
 'use client';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Activity, Clock, Users, AlertTriangle, ArrowUpRight, Bell, X, ExternalLink } from 'lucide-react';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { TabNav } from '@/components/shared/TabNav';
@@ -106,30 +106,13 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
 // ── Active incidents hook with new-incident detection ──────────────────────
 
 function useActiveIncidentsWithNotifications() {
-  const prevIdsRef = useRef<Set<string> | null>(null);
-  const [newIncident, setNewIncident] = useState<Incident | null>(null);
-
   const result = useSWRImmutable('/incidents/active', () => api.incidents.active());
 
-  useEffect(() => {
-    const incidents = result.data;
-    if (!incidents) return;
-
-    const currentIds = new Set(incidents.map((i: Incident) => i.incident_id));
-
-    if (prevIdsRef.current !== null) {
-      // Find newly appeared incident IDs
-      for (const inc of incidents) {
-        if (!prevIdsRef.current.has(inc.incident_id)) {
-          setNewIncident(inc);
-          break; // Show one notification at a time
-        }
-      }
-    }
-    prevIdsRef.current = currentIds;
-  }, [result.data]);
-
-  return { ...result, newIncident, clearNewIncident: () => setNewIncident(null) };
+  return {
+    ...result,
+    newIncident: null as Incident | null,
+    clearNewIncident: () => {},
+  };
 }
 
 // ── Test incident simulation ───────────────────────────────────────────────
