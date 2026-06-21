@@ -66,7 +66,7 @@ BACKEND_API_URL = os.getenv(
 
 app = Flask(__name__)
 if CORS is not None:
-    CORS(app, origins=[r"^https://.*\.pages\.dev$", "http://localhost:3000", "http://localhost:3001"])
+    CORS(app, origins=[r"^https://.*\.pages\.dev$", "http://localhost:3000", "http://localhost:3001","https://sentinel-ai-ashen-seven.vercel.app",])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
