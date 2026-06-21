@@ -51,16 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (storedToken) {
         setToken(storedToken);
         try {
-          // DEMO MOCK: Skip backend API for session check
-          const dummyUser = {
-            user_id: 1,
-            username: "admin",
-            email: "admin@sentinelai.local",
-            role: "ADMIN",
-            station_id: null,
-            is_active: true
-          } as any;
-          setUser(dummyUser);
+          const u = await api.auth.me();
+          setUser(u);
           setTokenState(storedToken);
         } catch (_) {
           localStorage.removeItem('sentinel_token');
@@ -82,21 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     setIsLoading(true);
     try {
-      // DEMO MOCK: Skip backend API entirely
-      const demoToken = "demo-mock-token-123";
-      const demoUser = {
-        user_id: 1,
-        username: "admin",
-        email: "admin@sentinelai.local",
-        role: "ADMIN",
-        station_id: null,
-        is_active: true
-      } as any;
-      
-      if (typeof window !== 'undefined') localStorage.setItem('sentinel_token', demoToken);
-      setToken(demoToken);
-      setTokenState(demoToken);
-      setUser(demoUser);
+      const res = await api.auth.login(username, password);
+      if (typeof window !== 'undefined') localStorage.setItem('sentinel_token', res.access_token);
+      setToken(res.access_token);
+      setTokenState(res.access_token);
+      setUser(res.user);
     } finally {
       setIsLoading(false);
     }
