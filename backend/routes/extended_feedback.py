@@ -8,7 +8,7 @@ from models.base import db
 from models.incidents import Incident
 from models.incident_feedback import IncidentFeedback
 from models.predictions import Prediction
-from utils.validators import FeedbackSchema
+from utils.validators import FeedbackSchema, is_valid_uuid
 
 logger = logging.getLogger(__name__)
 extended_feedback_bp = Blueprint("extended_feedback", __name__)
@@ -45,6 +45,8 @@ def _normalize_extended_payload(data: dict) -> dict:
 def submit_extended_feedback():
     """Submit extended incident feedback using the real feedback schema."""
     user_id = get_jwt_identity()
+    if user_id and not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
     data = request.get_json(silent=True) or {}
 
     try:

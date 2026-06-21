@@ -18,7 +18,7 @@ from services.sentinel_incident_service import (
     sentinel_incident_service, IncidentStateMachineError
 )
 from middleware.rbac import require_role
-from utils.validators import FeedbackSchema
+from utils.validators import FeedbackSchema, is_valid_uuid
 
 logger = logging.getLogger(__name__)
 feedback_bp = Blueprint("feedback", __name__)
@@ -38,6 +38,8 @@ def submit_feedback():
         return jsonify({"error": "VALIDATION_ERROR", "message": "Invalid request body", "details": e.messages}), 400
 
     user_id = get_jwt_identity()
+    if user_id and not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
     claims = get_jwt()
     user_role = claims.get("role", "")
 

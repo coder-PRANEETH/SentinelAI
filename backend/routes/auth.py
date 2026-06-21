@@ -6,6 +6,7 @@ Account lockout after 5 consecutive failures (30 min).
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import (
@@ -17,7 +18,7 @@ from argon2.exceptions import VerifyMismatchError
 from models.base import db
 from models.users import User
 from models.audit_logs import AuditLog
-from utils.validators import LoginSchema
+from utils.validators import LoginSchema, is_valid_uuid
 from marshmallow import ValidationError
 from config import MAX_LOGIN_ATTEMPTS, ACCOUNT_LOCK_MINUTES, JWT_BLOCKLIST_TTL
 
@@ -46,46 +47,28 @@ def login():
     except ValidationError as e:
         return jsonify({"error": "VALIDATION_ERROR", "message": "Invalid request", "details": e.messages}), 400
 
-    # DEMO BYPASS: Always allow admin and generate a valid JWT
-    if data["username"] == "admin":
-        additional_claims = {
-            "role": "ADMIN",
-            "station_id": None,
-            "username": "admin",
-        }
-        token = create_access_token(
-            identity="1",
-            additional_claims=additional_claims,
-        )
-        return jsonify({
-            "access_token": token,
-            "token_type": "bearer",
-            "user": {
-                "user_id": 1,
-                "username": "admin",
-                "email": "admin@sentinelai.local",
-                "role": "ADMIN",
-                "station_id": None,
-                "is_active": True
-            },
-        }), 200
-
     ip = request.remote_addr
     user = User.query.filter_by(username=data["username"]).first()
+
+    if not user:
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid credentials", "details": {}}), 401
 
     if not user.is_active:
         return jsonify({"error": "UNAUTHORIZED", "message": "Account is inactive", "details": {}}), 401
 
-    # Verify password
-    try:
-        ph.verify(user.password_hash, data["password"])
-    except VerifyMismatchError:
-        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-        if user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
-            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=ACCOUNT_LOCK_MINUTES)
-            logger.warning(f"Account locked: {user.username}")
-        db.session.commit()
-        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid credentials", "details": {}}), 401
+    if user.username == "admin":
+        pass  # DEMO BYPASS: Always allow admin without password check
+    else:
+        # Verify password
+        try:
+            ph.verify(user.password_hash, data["password"])
+        except VerifyMismatchError:
+            user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+            if user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
+                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=ACCOUNT_LOCK_MINUTES)
+                logger.warning(f"Account locked: {user.username}")
+            db.session.commit()
+            return jsonify({"error": "UNAUTHORIZED", "message": "Invalid credentials", "details": {}}), 401
 
     # Success
     user.failed_login_attempts = 0
@@ -132,6 +115,11 @@ def logout():
 @jwt_required()
 def me():
     user_id = get_jwt_identity()
+    
+    # Defensive check: ensure user_id is a valid UUID
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
+        
     user = User.query.filter_by(user_id=user_id).first()
     if not user:
         return jsonify({"error": "NOT_FOUND", "message": "User not found", "details": {}}), 404

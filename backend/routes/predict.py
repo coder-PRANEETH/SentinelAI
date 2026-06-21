@@ -16,7 +16,7 @@ from models.predictions import Prediction
 from services.ml_service import ml_service
 from services.sentinel_incident_service import sentinel_incident_service
 from middleware.rbac import require_role
-from utils.validators import PredictSchema
+from utils.validators import PredictSchema, is_valid_uuid
 from config import FAISS_INDEX_PATH, TOP_K_HISTORICAL, MIN_SIMILARITY_THRESHOLD
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ def predict():
 
     claims = get_jwt()
     user_id = get_jwt_identity()
+    if user_id and not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
 
     try:
         # Run prediction

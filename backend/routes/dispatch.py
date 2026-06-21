@@ -17,7 +17,7 @@ from models.dispatches import Dispatch
 from models.audit_logs import AuditLog
 from services.readiness_service import readiness_service
 from middleware.rbac import require_role
-from utils.validators import DispatchSchema
+from utils.validators import DispatchSchema, is_valid_uuid
 from utils.id_generator import generate_dispatch_id
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ def create_dispatch():
 
     claims = get_jwt()
     user_id = get_jwt_identity()
+    if not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
     user_role = claims.get("role", "")
 
     incident_id = data["incident_id"]

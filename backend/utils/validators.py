@@ -5,6 +5,14 @@ Returns field-level error details on invalid input.
 """
 
 from marshmallow import Schema, fields, validate, validates, ValidationError, EXCLUDE
+import uuid
+
+def is_valid_uuid(val):
+    try:
+        uuid.UUID(str(val))
+        return True
+    except ValueError:
+        return False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Allowed enumerations

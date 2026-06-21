@@ -14,7 +14,7 @@ from models.base import db
 from models.stations import Station
 from services.readiness_service import readiness_service
 from middleware.rbac import require_role
-from utils.validators import AllocateSchema, ReleaseSchema
+from utils.validators import AllocateSchema, ReleaseSchema, is_valid_uuid
 from config import STATION_LIST_CACHE_TTL
 
 logger = logging.getLogger(__name__)
@@ -119,6 +119,8 @@ def allocate(station_id: str):
         return jsonify({"error": "VALIDATION_ERROR", "message": "Invalid request body", "details": e.messages}), 400
 
     user_id = get_jwt_identity()
+    if user_id and not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
 
     try:
         updated_station = readiness_service.allocate_resources(
@@ -161,6 +163,8 @@ def release(station_id: str):
         return jsonify({"error": "VALIDATION_ERROR", "message": "Invalid request body", "details": e.messages}), 400
 
     user_id = get_jwt_identity()
+    if user_id and not is_valid_uuid(user_id):
+        return jsonify({"error": "UNAUTHORIZED", "message": "Invalid token identity format", "details": {}}), 401
 
     try:
         updated_station = readiness_service.release_resources(
