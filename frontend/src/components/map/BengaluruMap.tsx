@@ -684,7 +684,7 @@ export function BengaluruMap({
       {/* Layer controls */}
       {showLayerControls && (
         <div style={{
-          position: 'absolute', bottom: '24px', left: '24px',
+          position: 'absolute', bottom: '48px', left: '24px',
           background: '#111111', border: '1px solid #333333',
           borderRadius: '16px', padding: '16px',
           display: 'flex', flexDirection: 'column', gap: '12px',

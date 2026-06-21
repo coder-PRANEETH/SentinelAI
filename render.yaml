@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: sentinel-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    rootDir: backend
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        value: "placeholder"
+      - key: SUPABASE_ANON_KEY
+        value: "placeholder"
+      - key: DATABASE_URL
+        value: "placeholder"
+
+  - type: web
+    name: sentinel-final-endpoints
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn models:app"
+    rootDir: final_endpoints
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        value: "placeholder"
+      - key: BACKEND_API_URL
+        value: "placeholder"
