@@ -65,6 +65,7 @@ Create two new **Cloudflare Pages** applications connected to the repository.
 - **Framework:** Next.js
 - **Build Command:** `npx @cloudflare/next-on-pages`
 - **Build Output Directory:** `.vercel/output/static`
+- **Compatibility Flags:** You MUST add `nodejs_compat` in the project settings -> Settings -> Functions -> Compatibility Flags.
 - **Environment Variables:**
   - `NEXT_PUBLIC_SUPABASE_URL`: `<Supabase Project URL>`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `<Supabase Anon Key>`
