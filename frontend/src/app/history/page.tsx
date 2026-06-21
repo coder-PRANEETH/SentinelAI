@@ -24,7 +24,6 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
 
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
-    console.log("BUTTON CLICKED");
     if (query.trim().length < 3) return;
     setIsSearching(true);
     setError('');
@@ -32,14 +31,9 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
 
     try {
       const payload = { query: query.trim(), top_k: 15 };
-      console.log("PAYLOAD", payload);
-      console.log("BEFORE FETCH");
       const res = await historicalSearch(payload.query, payload.top_k);
-      console.log("AFTER FETCH");
-      console.log("RESPONSE", res);
       setResults({ ...res, low_confidence_warning: res.total_similar < 3 });
     } catch (err) {
-      console.error("REQUEST FAILED", err);
       const e = err as FinalApiError;
       setError(e.message || 'Search failed.');
     } finally {

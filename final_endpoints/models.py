@@ -69,9 +69,43 @@ BACKEND_API_URL = os.getenv(
 
 app = Flask(__name__)
 if CORS is not None:
-    CORS(app, origins=[r"^https://.*\.pages\.dev$", "http://localhost:3000", "http://localhost:3001","https://sentinel-ai-ashen-seven.vercel.app",])
-
+    CORS(
+        app,
+        origins=[
+            r"^https://.*\.pages\.dev$",
+            r"^https://.*\.vercel\.app$",
+            "http://localhost:3000",
+            "http://localhost:3001",
+        ],
+        supports_credentials=True,
+    )
 logger = logging.getLogger(__name__)
+
+_ALLOWED_ORIGIN_PATTERNS = (
+    re.compile(r"^https://.*\.pages\.dev$"),
+    re.compile(r"^https://.*\.vercel\.app$"),
+)
+
+
+def _is_allowed_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    return any(pattern.fullmatch(origin) for pattern in _ALLOWED_ORIGIN_PATTERNS)
+
+
+@app.after_request
+def _attach_cors_headers(response):
+    origin = request.headers.get("Origin")
+    if _is_allowed_origin(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = request.headers.get(
+            "Access-Control-Request-Headers",
+            "Content-Type, Authorization",
+        )
+        response.headers.setdefault("Vary", "Origin")
+    return response
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -172,15 +172,9 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         min_vehicles: 1,
         search_top_k: 8,
       };
-      console.log("PAYLOAD", payload);
-      console.log("BEFORE FETCH");
       try {
-        const res = await getDispatchRecommendation(payload);
-        console.log("AFTER FETCH");
-        console.log("RESPONSE", res);
-        return res; // returns { dispatch, historical_context }
+        return await getDispatchRecommendation(payload); // returns { dispatch, historical_context }
       } catch (err) {
-        console.error("REQUEST FAILED", err);
         throw err;
       }
     },
@@ -384,15 +378,9 @@ export default function IncidentDetailPage() {
         query: `${incident?.incident_type || ''} ${incident?.corridor || ''} ${incident?.event_cause || ''}`,
         top_k: 5,
       };
-      console.log("PAYLOAD", payload);
-      console.log("BEFORE FETCH");
       try {
-        const res = await historicalSearch(payload.query, payload.top_k);
-        console.log("AFTER FETCH");
-        console.log("RESPONSE", res);
-        return res;
+        return await historicalSearch(payload.query, payload.top_k);
       } catch (err) {
-        console.error("REQUEST FAILED", err);
         throw err;
       }
     },

@@ -45,16 +45,11 @@ export default function DispatchPage() {
         corridor: inputs.corridor || undefined,
         search_top_k: 20,
       };
-      console.log("PAYLOAD", payload);
-      console.log("BEFORE FETCH");
       try {
         const res = await getDispatchRecommendation(payload);
-        console.log("AFTER FETCH");
-        console.log("RESPONSE", res);
         const resources = await getStation(res.dispatch.recommended_station);
         return { dispatch: res, recommendedResources: resources };
       } catch (err) {
-        console.error("REQUEST FAILED", err);
         throw err;
       }
     }
@@ -66,7 +61,6 @@ export default function DispatchPage() {
   const recommendedStation = result?.dispatch.dispatch.recommended_station;
 
   const handleGetRecommendation = () => {
-    console.log("BUTTON CLICKED");
     setSubmitted({ incidentText, corridor });
   };
 
