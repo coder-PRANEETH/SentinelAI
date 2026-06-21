@@ -504,8 +504,15 @@ export function BengaluruMap({
         if (left + 150 > window.innerWidth) left = window.innerWidth - 150 - 16;
         if (left - 150 < 0) left = 150 + 16;
 
+        const top = rect.top + point.y;
+        if (top < 150) {
+          hoverCardRef.current.style.transform = 'translate(-50%, 16px)';
+        } else {
+          hoverCardRef.current.style.transform = 'translate(-50%, calc(-100% - 16px))';
+        }
+
         hoverCardRef.current.style.left = `${left}px`;
-        hoverCardRef.current.style.top = `${rect.top + point.y}px`;
+        hoverCardRef.current.style.top = `${top}px`;
         hoverCardRef.current.style.opacity = '1';
       });
 
@@ -556,8 +563,15 @@ export function BengaluruMap({
         if (left + 220 > window.innerWidth) left = window.innerWidth - 220 - 16;
         if (left - 220 < 0) left = 220 + 16;
 
+        const top = rect.top + point.y;
+        if (top < 150) {
+          hoverCardRef.current.style.transform = 'translate(-50%, 16px)';
+        } else {
+          hoverCardRef.current.style.transform = 'translate(-50%, calc(-100% - 16px))';
+        }
+
         hoverCardRef.current.style.left = `${left}px`;
-        hoverCardRef.current.style.top = `${rect.top + point.y}px`;
+        hoverCardRef.current.style.top = `${top}px`;
         hoverCardRef.current.style.opacity = '1';
       });
 
