@@ -339,9 +339,9 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function IncidentDetailPage() {
-  const params = useParams<{ id: string }>();
-  const incidentId = params.id;
+  const params = useParams();
   const router = useRouter();
+  const incidentId = params?.id as string;
   const [showAllocate, setShowAllocate] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [rippleData, setRippleData] = useState<any[] | null>(null);

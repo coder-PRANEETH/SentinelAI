@@ -133,11 +133,11 @@ export function RightPanel() {
             const statusIcon = STATUS_ICONS[inc.status] ?? <Clock size={12} style={{ color: '#9CA3AF' }} />;
 
             return (
-              <div
+              <Link
                 key={inc.incident_id}
+                href={`/incidents/${encodeURIComponent(inc.incident_id)}`}
                 className="right-panel-link"
-                onClick={() => router.push(`/incidents/${inc.incident_id}`)}
-                style={{ flexDirection: 'column', gap: 6, alignItems: 'stretch', cursor: 'pointer' }}
+                style={{ flexDirection: 'column', gap: 6, alignItems: 'stretch', cursor: 'pointer', textDecoration: 'none' }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -158,7 +158,7 @@ export function RightPanel() {
                 <div style={{ fontSize: 11, color: '#6B7280' }}>
                   {inc.corridor || inc.location || inc.incident_id}
                 </div>
-              </div>
+              </Link>
             );
           })
         )}

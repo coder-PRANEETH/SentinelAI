@@ -313,11 +313,11 @@ export default function DashboardPage() {
             <StatCard
               icon={Clock}
               title="Avg Resolution"
-              value={kpis?.avg_resolution_minutes || "—"}
-              total={kpis?.avg_resolution_minutes ? "min" : ""}
-              percentage={kpis?.avg_resolution_minutes ? 8 : undefined}
-              usedDots={kpis?.avg_resolution_minutes ? 8 : 0}
-              totalDots={kpis?.avg_resolution_minutes ? 10 : 0}
+              value={kpis?.avg_resolution_minutes != null ? kpis.avg_resolution_minutes : "—"}
+              total={kpis?.avg_resolution_minutes != null ? "min" : ""}
+              percentage={kpis?.avg_resolution_minutes != null ? 8 : undefined}
+              usedDots={kpis?.avg_resolution_minutes != null ? 8 : 0}
+              totalDots={kpis?.avg_resolution_minutes != null ? 10 : 0}
               variant="accent"
               isLoading={isKpisLoading}
             />
