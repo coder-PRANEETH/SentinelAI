@@ -12,7 +12,7 @@ Combines:
 import os
 import sys
 import json
-import sqlite3
+import psycopg2
 import pickle
 import uuid
 import re
@@ -66,7 +66,12 @@ BACKEND_API_URL = os.getenv(
 
 app = Flask(__name__)
 if CORS is not None:
-    CORS(app)
+    CORS(app, origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://sentinel-frontend.pages.dev",
+        "https://sentinel-user-frontend.pages.dev"
+    ])
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -217,8 +222,33 @@ STATIONS: List[str] = [
 ]
 
 
-def _get_db_connection(db_file=DB_FILE) -> sqlite3.Connection:
-    return sqlite3.connect(db_file, check_same_thread=False)
+class DBWrapper:
+    def __init__(self):
+        db_url = os.environ.get("DATABASE_URL")
+        if not db_url:
+            raise Exception("DATABASE_URL environment variable is missing for ResourceTracker")
+        self.conn = psycopg2.connect(db_url)
+    
+    def cursor(self):
+        return self.execute("") # dummy for cursor() call if any, though we return cursors in execute
+
+    def execute(self, query, params=()):
+        cur = self.conn.cursor()
+        if query:
+            cur.execute(query.replace('?', '%s'), params)
+        return cur
+    
+    def commit(self):
+        self.conn.commit()
+    
+    def rollback(self):
+        self.conn.rollback()
+        
+    def close(self):
+        self.conn.close()
+
+def _get_db_connection(db_file=DB_FILE):
+    return DBWrapper()
 
 
 def _backend_generate_incident_id(cur) -> str:
@@ -425,14 +455,14 @@ def _init_db(db_file=DB_FILE, force=False):
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS resource_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          SERIAL PRIMARY KEY,
             station     TEXT,
             action      TEXT,
             officers    INTEGER,
             vehicles    INTEGER,
             tow_trucks  INTEGER,
             barricades  INTEGER,
-            timestamp   DATETIME DEFAULT CURRENT_TIMESTAMP
+            timestamp   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -440,17 +470,36 @@ def _init_db(db_file=DB_FILE, force=False):
         c.execute("DELETE FROM station_resources")
 
     # Seed only missing stations
-    for station in STATIONS:
+    import random
+    for i, station in enumerate(STATIONS):
+        # Create some realistic variations for demo purposes
+        if i % 5 == 0:
+            off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(2, 8))
+            veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(1, 3))
+            tow = max(0, DEFAULT_RESOURCES["tow_trucks"] - random.randint(0, 1))
+            bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(5, 15))
+        elif i % 3 == 0:
+            off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(1, 4))
+            veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(0, 1))
+            tow = DEFAULT_RESOURCES["tow_trucks"]
+            bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(2, 5))
+        else:
+            off = DEFAULT_RESOURCES["officers"]
+            veh = DEFAULT_RESOURCES["vehicles"]
+            tow = DEFAULT_RESOURCES["tow_trucks"]
+            bar = DEFAULT_RESOURCES["barricades"]
+
         c.execute(
-            "INSERT OR IGNORE INTO station_resources VALUES (?,?,?,?,?)",
-            (
-                station,
-                DEFAULT_RESOURCES["officers"],
-                DEFAULT_RESOURCES["vehicles"],
-                DEFAULT_RESOURCES["tow_trucks"],
-                DEFAULT_RESOURCES["barricades"],
-            ),
+            "INSERT INTO station_resources VALUES (%s,%s,%s,%s,%s) ON CONFLICT (station) DO NOTHING",
+            (station, off, veh, tow, bar),
         )
+
+        # Fix Chikkajala if it has 0s due to a previous bug
+        c.execute("""
+            UPDATE station_resources 
+            SET officers=?, vehicles=?, tow_trucks=?, barricades=? 
+            WHERE station=? AND officers=0 AND vehicles=0 AND tow_trucks=0 AND barricades=0
+        """, (off, veh, tow, bar, station))
 
     conn.commit()
     conn.close()
@@ -689,11 +738,10 @@ def compute_readiness_score(
         RESOURCE_WEIGHTS["tow_trucks"] * (res["tow_trucks"] / max(DEFAULT_RESOURCES["tow_trucks"], 1))
     )
 
-    # Load factor: normalise active incidents (0 = idle, 1 = fully loaded)
-    load_factor = min(
-        (load["active_incidents"] + 0.5 * load["high_priority_incidents"]) / 10.0,
-        2.0,  # cap at 2x to avoid division by near-zero
-    )
+    import math
+    effective_load = load["active_incidents"] + 0.5 * load["high_priority_incidents"]
+    # Use a logarithmic scale to differentiate high-load stations without hitting a hard cap
+    load_factor = math.log1p(effective_load) / 1.5
 
     raw_score = resource_ratio / (1.0 + load_factor)
     score     = round(raw_score * 100, 1)
@@ -1481,8 +1529,9 @@ def simulate_ripple():
 # ═════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
     app.run(
         host="0.0.0.0",
-        port=5000,
-        debug=True
+        port=port,
+        debug=False
     )

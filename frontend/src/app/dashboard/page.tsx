@@ -158,7 +158,7 @@ export default function DashboardPage() {
     const yesterday = trendDataRaw[trendDataRaw.length - 2];
     const todayTotal = today.P1 + today.P2 + today.P3 + today.P4;
     const yesterdayTotal = yesterday.P1 + yesterday.P2 + yesterday.P3 + yesterday.P4;
-    if (yesterdayTotal === 0) return todayTotal > 0 ? 100 : 0;
+    if (yesterdayTotal === 0) return todayTotal > 0 ? "New" : 0;
     return Math.round(((todayTotal - yesterdayTotal) / yesterdayTotal) * 100);
   })();
 
@@ -313,11 +313,11 @@ export default function DashboardPage() {
             <StatCard
               icon={Clock}
               title="Avg Resolution"
-              value={kpis?.avg_resolution_minutes ?? 0}
-              total="min"
-              percentage={8}
-              usedDots={8}
-              totalDots={10}
+              value={kpis?.avg_resolution_minutes || "—"}
+              total={kpis?.avg_resolution_minutes ? "min" : ""}
+              percentage={kpis?.avg_resolution_minutes ? 8 : undefined}
+              usedDots={kpis?.avg_resolution_minutes ? 8 : 0}
+              totalDots={kpis?.avg_resolution_minutes ? 10 : 0}
               variant="accent"
               isLoading={isKpisLoading}
             />

@@ -1,0 +1,11 @@
+flask
+flask-cors
+catboost
+pandas
+numpy
+networkx
+faiss-cpu
+sentence-transformers
+psycopg2-binary
+scikit-learn
+gunicorn

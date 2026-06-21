@@ -3,9 +3,6 @@ Speech-to-Text service using Faster-Whisper.
 Provides functionality to transcribe audio files to text.
 """
 
-from faster_whisper import WhisperModel
-
-
 def transcribe_audio_file(file_path: str) -> str:
     """
     Transcribe an audio file using Faster-Whisper.
@@ -20,6 +17,7 @@ def transcribe_audio_file(file_path: str) -> str:
         Exception: If transcription fails
     """
     try:
+        from faster_whisper import WhisperModel
         # Initialize Faster-Whisper model (base model for balance between speed and accuracy)
         model = WhisperModel("base", device="cpu", compute_type="default")
         
