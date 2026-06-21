@@ -134,7 +134,11 @@ def _parse_cors_origins(raw_value: str):
     """
     value = (raw_value or "").strip()
     if not value or value == "*":
-        return "*"
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            r"https://.*\.vercel\.app",
+        ]
     return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
