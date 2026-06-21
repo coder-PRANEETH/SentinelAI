@@ -5,7 +5,7 @@ interface StatCardProps {
   title: string;
   value?: number | string;
   total?: number | string;
-  percentage: number;
+  percentage?: number | string;
   variant?: 'default' | 'accent' | 'dark';
   capacityDots?: number;
   usedDots?: number;
