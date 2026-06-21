@@ -671,20 +671,7 @@ export default function IncidentDetailPage() {
                 Quick Actions
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <Link
-                  href={`/incidents/${incidentId}/dispatch`}
-                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5' }}
-                >
-                  <Car size={14} style={{ color: '#6B7280' }} /> View Dispatch Plan
-                </Link>
-                {isActive && (
-                  <button
-                    onClick={() => setShowAllocate(true)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5', cursor: 'pointer', textAlign: 'left' }}
-                  >
-                    <Users size={14} style={{ color: '#6B7280' }} /> Allocate Resources
-                  </button>
-                )}
+
                 <Link
                   href={`/feedback?incident_id=${incidentId}`}
                   style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5' }}

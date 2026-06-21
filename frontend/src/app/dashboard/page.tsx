@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { Activity, Clock, Users, AlertTriangle, ArrowUpRight, Bell, X, ExternalLink } from 'lucide-react';
 import { PageHeading } from '@/components/layout/PageHeading';
-import { TabNav } from '@/components/shared/TabNav';
 import { StatCard } from '@/components/shared/StatCard';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
@@ -16,10 +15,6 @@ import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 import { listStationReadiness } from '@/api/finalEndpointsApi';
 import Link from 'next/link';
-import AnalyticsPage from '../analytics/page';
-import ResourcesPage from '../resources/page';
-import StationsPage from '../stations/page';
-import HistoryPage from '../history/page';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
@@ -132,7 +127,6 @@ const TEST_INCIDENT: Incident = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('Overview');
   const { kpis, isLoading: kpisLoading } = useKPIs(30000);
   const { stations } = useStations(30000);
   const { data: readinessData, isLoading: readinessLoading } = useSWRImmutable(
@@ -183,19 +177,7 @@ export default function DashboardPage() {
         </>
       } />
 
-      <TabNav 
-        tabs={['Overview', 'Stations', 'Resources', 'Analytics', 'History']}
-        active={tab}
-        onChange={setTab}
-      />
-
-      {tab === 'Analytics' && <div className="flex-1 overflow-auto"><AnalyticsPage hideHeading={true} /></div>}
-      {tab === 'Resources' && <div className="flex-1 overflow-auto"><ResourcesPage hideHeading={true} /></div>}
-      {tab === 'Stations' && <div className="flex-1 overflow-auto"><StationsPage hideHeading={true} /></div>}
-      {tab === 'History' && <div className="flex-1 overflow-auto"><HistoryPage hideHeading={true} /></div>}
-
-      {tab === 'Overview' && (
-        <div className="flex-1 px-7 pb-7 grid grid-cols-12 gap-4 overflow-auto">
+      <div className="flex-1 px-7 pb-7 grid grid-cols-12 gap-4 overflow-auto">
 
           {/* ── ROW 1: Live Incident Queue (primary focus, full width) ── */}
           <div className="col-span-8">
@@ -364,8 +346,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      )}
-
       {/* Real-time notification toasts */}
       {newIncident && (
         <IncidentToast incident={newIncident} onClose={clearNewIncident} />
