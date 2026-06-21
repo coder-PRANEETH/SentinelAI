@@ -267,6 +267,7 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
               </div>
             `;
 
+            if (!mapContainer.current) return;
             const rect = mapContainer.current.getBoundingClientRect();
             let left = rect.left + e.point.x + 15;
             let top = rect.top + e.point.y + 15;
