@@ -647,8 +647,8 @@ export function BengaluruMap({
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <svg width="14" height="16" viewBox="0 0 24 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2L3 6V13C3 18.5 7.05 23.74 12 25C16.95 23.74 21 18.5 21 13V6L12 2Z" fill="#111111" stroke="#16A34A" stroke-width="3" stroke-linejoin="round"/>
-                  <path d="M12 8V18M8 13H16" stroke="#16A34A" stroke-width="2.5" stroke-linecap="round"/>
+                  <path d="M12 2L3 6V13C3 18.5 7.05 23.74 12 25C16.95 23.74 21 18.5 21 13V6L12 2Z" fill="#111111" stroke="#16A34A" strokeWidth="3" strokeLinejoin="round"/>
+                  <path d="M12 8V18M8 13H16" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round"/>
                 </svg>
                 Station Markers
               </div>
@@ -662,7 +662,7 @@ export function BengaluruMap({
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="10" cy="10" r="8" fill="#111111" stroke="#E35D5D" stroke-width="3" />
+                  <circle cx="10" cy="10" r="8" fill="#111111" stroke="#E35D5D" strokeWidth="3" />
                   <circle cx="10" cy="10" r="3" fill="#E35D5D" />
                 </svg>
                 Incident Pins
