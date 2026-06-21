@@ -8,6 +8,7 @@ import {
 import { PageHeading } from '@/components/layout/PageHeading';
 import { KPICard } from '@/components/shared/KPICard';
 import { LoadingState, ErrorState } from '@/components/shared/LoadingState';
+import { IncidentDensityMap } from '@/components/map/IncidentDensityMap';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -32,6 +33,9 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
   const { data: trends, isLoading: trendsLoading } = useSWR('/analytics/trends', () => api.analytics.trends(30));
   const { data: histogram, isLoading: histLoading } = useSWR('/analytics/histogram', () => api.analytics.histogram(30));
   const { data: corridors, isLoading: corridorsLoading } = useSWR('/analytics/corridors', api.analytics.corridors);
+  
+  // Fetch up to 1000 recent incidents so the heatmap has enough density to render visible blobs
+  const { data: incidents } = useSWR('/incidents/heatmap', () => api.incidents.list({ limit: 1000 }));
 
   return (
     <>
@@ -103,7 +107,17 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
             </div>
           </div>
 
-          {/* Row 3: Corridor performance table */}
+          {/* Row 3: Incident Density Map */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '24px', display: 'flex', flexDirection: 'column', height: '480px' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontSize: '14px', fontWeight: 700, background: 'var(--surface)', zIndex: 2 }}>
+              Incident Density Map
+            </div>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <IncidentDensityMap incidents={incidents ?? []} height="100%" />
+            </div>
+          </div>
+
+          {/* Row 4: Corridor performance table */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontSize: '14px', fontWeight: 700 }}>
               Corridor Performance
