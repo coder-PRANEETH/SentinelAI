@@ -69,7 +69,8 @@ Create two new **Cloudflare Pages** applications connected to the repository.
 - **Environment Variables:**
   - `NEXT_PUBLIC_SUPABASE_URL`: `<Supabase Project URL>`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `<Supabase Anon Key>`
-  - `NEXT_PUBLIC_API_URL`: `https://[RENDER_BACKEND_URL].onrender.com`
+  - `NEXT_PUBLIC_FASTAPI_URL`: `https://[RENDER_BACKEND_URL].onrender.com`
+  - `NEXT_PUBLIC_FLASK_API_URL`: `https://[RENDER_FINAL_ENDPOINTS_URL].onrender.com`
   - `NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL`: `https://[RENDER_FINAL_ENDPOINTS_URL].onrender.com`
 
 **App 2: Sentinel User Reporting (`user_frontend/`)**
