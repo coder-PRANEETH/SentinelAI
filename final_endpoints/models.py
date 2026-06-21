@@ -66,7 +66,7 @@ BACKEND_API_URL = os.getenv(
 
 app = Flask(__name__)
 if CORS is not None:
-    CORS(app, origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","))
+    CORS(app)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1040,13 +1040,48 @@ def dispatch(
 
     # Step 1 – Historical context
     history = search_similar_incidents(incident_text, top_k=search_top_k)
+    
+    # Step 2 - Dynamic Resource Recommendation Heuristic
+    # The Astram dataset does not track exact historical officer/vehicle counts per incident.
+    # We derive a justified rule-based recommendation from the most common priority and event signals
+    # of the similar historical cases.
+    hist_priority = history.get("historical_priority", "low").lower()
+    
+    # Analyze the top similar cases for heavy vehicles or planned events
+    has_heavy_vehicle = any(c.get("veh_type") in ["heavy_vehicle", "bus"] for c in history["similar_cases"])
+    has_planned_event = any(c.get("event_cause") in ["public_event", "procession", "vip_movement", "protest"] for c in history["similar_cases"])
+    
+    # Default baseline
+    rec_officers = 2
+    rec_vehicles = 1
+    rec_tow = 0
+    rec_barricades = 0
+    
+    reasoning = []
+    
+    if hist_priority in ["p1", "high", "critical"]:
+        rec_officers += 2
+        rec_vehicles += 1
+        reasoning.append("High priority historical profile (+2 officers, +1 vehicle)")
+    
+    if has_heavy_vehicle:
+        rec_tow = 1
+        reasoning.append("Involves heavy vehicles/buses (+1 tow truck)")
+        
+    if has_planned_event:
+        rec_officers += 4
+        rec_barricades = 10
+        reasoning.append("Planned event detected in context (+4 officers, +10 barricades)")
+        
+    if not reasoning:
+        reasoning.append("Standard baseline response package")
 
-    # Step 2 – Station selection
+    # Step 3 – Station selection using the dynamically computed minimums
     selection = lb.select_station(
         incident_location=incident_text,
         corridor=corridor,
-        min_officers=min_officers,
-        min_vehicles=min_vehicles,
+        min_officers=rec_officers,
+        min_vehicles=rec_vehicles,
     )
 
     return {
@@ -1056,6 +1091,13 @@ def dispatch(
             "readiness_score":      selection["readiness_score"],
             "reasons":              selection["reason"],
             "top_candidates":       selection["all_candidates"],
+        },
+        "recommended_resources": {
+            "officers": rec_officers,
+            "vehicles": rec_vehicles,
+            "tow_trucks": rec_tow,
+            "barricades": rec_barricades,
+            "justification": "Based on historical similarities: " + "; ".join(reasoning)
         },
         "historical_context": {
             "similar_cases":            history["total_similar"],
@@ -1441,6 +1483,6 @@ def simulate_ripple():
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        debug=False
+        port=5000,
+        debug=True
     )
