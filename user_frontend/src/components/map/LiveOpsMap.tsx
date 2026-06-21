@@ -1,31 +1,31 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BENGALURU_STATIONS } from "@/lib/stationsData";
 
 /**
- * LiveOpsMap — a full-screen, ambient "emergency operations" map backdrop for
- * the public landing page. Reuses the same dark OpenFreeMap style as
- * {@link PublicMap}, but is purely decorative (non-interactive) and layered
- * with live activity:
- *   - flowing animated route lines in lime + cyan, curved via spline smoothing
- *   - soft glow lines underneath the routes
- *   - pulsing station markers (lime) + incident markers (red)
- *   - emergency vehicles drifting along the routes (interpolated points)
+ * LiveOpsMap — the public landing page's hero map. Two layers:
+ *   1. An ambient "emergency operations" backdrop (flowing routes, pulsing
+ *      stations/incidents, drifting vehicles) that plays when no trip is
+ *      active, plus real 3D building extrusions and full pan/zoom/tilt
+ *      interactivity.
+ *   2. An interactive "plan a trip" mode: the visitor types a destination,
+ *      we resolve their live location, geocode the destination (Nominatim),
+ *      fetch a real driving route (OSRM), then fly the camera through a
+ *      cinematic Google-Maps-style navigation: fit-to-route, tilt into 3D,
+ *      and follow a moving puck along the road with the camera banking to
+ *      match heading.
  *
- * A CSS/SVG "fallback scene" sits on top of the live map and only fades away
- * once MapLibre confirms tiles have actually rendered — if OpenFreeMap is
- * slow/unreachable the page still shows an animated, on-brand scene instead
- * of a blank/black rectangle.
- *
- * Everything runs on a single requestAnimationFrame loop and free tiles —
- * no paid map APIs.
+ * Everything runs on free, keyless services (OpenFreeMap tiles, OSRM's
+ * public routing demo, Nominatim geocoding) — no paid map APIs.
  */
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 const CENTER: [number, number] = [77.615, 12.965];
+const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const OSRM_URL = "https://router.project-osrm.org/route/v1/driving";
 
 type RouteDef = { coords: [number, number][]; color: string };
 
@@ -163,40 +163,75 @@ type IncidentMarker = {
   coordinates: [number, number];
 };
 
-type Vehicle = {
-  route: [number, number][];
-  color: string;
-  cum: number[]; // cumulative segment lengths
-  total: number;
-  t: number; // 0..1 progress along the route
-  speed: number; // progress per ms
-};
+// ── Generic path math (shared by ambient vehicles + the trip puck) ───────
 
-function buildVehicle(route: RouteDef, speed: number, offset: number): Vehicle {
+function pathMetrics(coords: [number, number][]) {
   const cum = [0];
   let total = 0;
-  for (let i = 1; i < route.coords.length; i++) {
-    const dx = route.coords[i][0] - route.coords[i - 1][0];
-    const dy = route.coords[i][1] - route.coords[i - 1][1];
+  for (let i = 1; i < coords.length; i++) {
+    const dx = coords[i][0] - coords[i - 1][0];
+    const dy = coords[i][1] - coords[i - 1][1];
     total += Math.hypot(dx, dy);
     cum.push(total);
   }
-  return { route: route.coords, color: route.color, cum, total, t: offset, speed };
+  return { cum, total: total || 1 };
 }
 
-function vehiclePosition(v: Vehicle): [number, number] {
-  const dist = v.t * v.total;
-  for (let i = 1; i < v.cum.length; i++) {
-    if (dist <= v.cum[i]) {
-      const segStart = v.cum[i - 1];
-      const segLen = v.cum[i] - segStart || 1;
+function positionAlong(
+  coords: [number, number][],
+  cum: number[],
+  total: number,
+  t: number
+): { point: [number, number]; index: number; heading: number } {
+  const dist = Math.min(Math.max(t, 0), 1) * total;
+  for (let i = 1; i < cum.length; i++) {
+    if (dist <= cum[i] || i === cum.length - 1) {
+      const segStart = cum[i - 1];
+      const segLen = cum[i] - segStart || 1;
       const f = (dist - segStart) / segLen;
-      const a = v.route[i - 1];
-      const b = v.route[i];
-      return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+      const a = coords[i - 1];
+      const b = coords[i];
+      const point: [number, number] = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+      return { point, index: i - 1, heading: bearingBetween(a, b) };
     }
   }
-  return v.route[v.route.length - 1];
+  return { point: coords[coords.length - 1], index: coords.length - 1, heading: 0 };
+}
+
+function bearingBetween(a: [number, number], b: [number, number]): number {
+  const lon1 = (a[0] * Math.PI) / 180;
+  const lon2 = (b[0] * Math.PI) / 180;
+  const lat1 = (a[1] * Math.PI) / 180;
+  const lat2 = (b[1] * Math.PI) / 180;
+  const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function haversineKm(a: [number, number], b: [number, number]): number {
+  const R = 6371;
+  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+  const dLon = ((b[0] - a[0]) * Math.PI) / 180;
+  const lat1 = (a[1] * Math.PI) / 180;
+  const lat2 = (b[1] * Math.PI) / 180;
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLon = Math.sin(dLon / 2);
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+type Vehicle = {
+  route: [number, number][];
+  color: string;
+  cum: number[];
+  total: number;
+  t: number;
+  speed: number;
+};
+
+function buildVehicle(route: RouteDef, speed: number, offset: number): Vehicle {
+  const { cum, total } = pathMetrics(route.coords);
+  return { route: route.coords, color: route.color, cum, total, t: offset, speed };
 }
 
 /** Canvas-based pulsing-dot StyleImage (the canonical MapLibre technique). */
@@ -220,13 +255,11 @@ function makePulsingDot(map: maplibregl.Map, rgb: string, period: number) {
       const outer = inner + (size / 2 - inner) * t;
       ctx.clearRect(0, 0, size, size);
 
-      // expanding halo
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, outer, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${rgb}, ${0.45 * (1 - t)})`;
       ctx.fill();
 
-      // solid core + soft outer ring
       ctx.beginPath();
       ctx.arc(size / 2, size / 2, inner, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${rgb}, 1)`;
@@ -253,6 +286,80 @@ function transparentPlaceholder(): maplibregl.StyleImageInterface {
   return { width: 1, height: 1, data: new Uint8Array(4) };
 }
 
+function emptyGeojson(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
+function lineFeature(coords: [number, number][]): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } }],
+  };
+}
+
+// ── Trip planning ──────────────────────────────────────────────────────
+
+type TripStatus = "idle" | "locating" | "searching" | "routing" | "active" | "error";
+
+type TripInfo = { distanceKm: number; durationMin: number; destinationLabel: string };
+
+function getCurrentPosition(): Promise<[number, number]> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      reject(new Error("Geolocation isn't supported on this device."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve([pos.coords.longitude, pos.coords.latitude]),
+      () => reject(new Error("Couldn't access your location — check location permissions.")),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+    );
+  });
+}
+
+async function geocodeDestination(query: string): Promise<{ point: [number, number]; label: string }> {
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    limit: "1",
+    countrycodes: "in",
+    viewbox: "77.35,13.2,77.95,12.75",
+    bounded: "0",
+  });
+  const res = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error("Destination search failed — try again.");
+  const data = (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+  if (!data.length) throw new Error(`Couldn't find "${query}". Try a more specific address.`);
+  return { point: [parseFloat(data[0].lon), parseFloat(data[0].lat)], label: data[0].display_name };
+}
+
+async function fetchDrivingRoute(
+  origin: [number, number],
+  destination: [number, number]
+): Promise<{ coords: [number, number][]; distanceKm: number; durationMin: number }> {
+  const url = `${OSRM_URL}/${origin[0]},${origin[1]};${destination[0]},${destination[1]}?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("routing_failed");
+  const data = await res.json();
+  const route = data?.routes?.[0];
+  if (!route) throw new Error("routing_failed");
+  return {
+    coords: route.geometry.coordinates as [number, number][],
+    distanceKm: route.distance / 1000,
+    durationMin: route.duration / 60,
+  };
+}
+
+const AMBIENT_LAYERS = [
+  "ops-route-glow",
+  "ops-route-base",
+  "ops-route-flow",
+  "ops-vehicles-glow",
+  "ops-vehicles-core",
+];
+
 export function LiveOpsMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -264,6 +371,20 @@ export function LiveOpsMap() {
     }))
   );
 
+  // Trip state
+  const [destinationInput, setDestinationInput] = useState("");
+  const [tripStatus, setTripStatus] = useState<TripStatus>("idle");
+  const [tripError, setTripError] = useState<string | null>(null);
+  const [tripInfo, setTripInfo] = useState<TripInfo | null>(null);
+  const [followMode, setFollowMode] = useState(true);
+
+  const tripRafRef = useRef(0);
+  const originMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const destMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const puckMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const followModeRef = useRef(true);
+  const userDraggedRef = useRef(false);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -273,13 +394,14 @@ export function LiveOpsMap() {
       center: CENTER,
       zoom: 11.4,
       minZoom: 9,
-      maxZoom: 16,
-      pitch: 0,
+      maxZoom: 19,
+      pitch: 30,
       bearing: 0,
-      interactive: false, // purely ambient backdrop
       attributionControl: false,
     });
     mapRef.current = map;
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
 
     let raf = 0;
     let dashStep = 0;
@@ -287,9 +409,6 @@ export function LiveOpsMap() {
     let tileErrorCount = 0;
     const vehicles: Vehicle[] = [];
 
-    // Any sprite image the style references but can't resolve (OpenFreeMap's
-    // dark style is known to ask for a "wood-pattern" fill it doesn't ship)
-    // gets a transparent placeholder instead of failing/console-warning.
     map.on("styleimagemissing", (e) => {
       if (map.hasImage(e.id)) return;
       map.addImage(e.id, transparentPlaceholder());
@@ -299,11 +418,55 @@ export function LiveOpsMap() {
       tileErrorCount += 1;
     });
 
+    map.on("dragstart", (e) => {
+      if (e.originalEvent) {
+        userDraggedRef.current = true;
+        followModeRef.current = false;
+        setFollowMode(false);
+      }
+    });
+
     const resizeObserver = new ResizeObserver(() => map.resize());
     resizeObserver.observe(containerRef.current);
 
     map.on("load", () => {
       map.resize();
+
+      // ── Real 3D buildings (extruded from OpenMapTiles building footprints) ──
+      if (map.getLayer("building")) {
+        map.setLayoutProperty("building", "visibility", "none");
+      }
+      map.addLayer({
+        id: "ops-3d-buildings",
+        source: "openmaptiles",
+        "source-layer": "building",
+        type: "fill-extrusion",
+        minzoom: 12.5,
+        paint: {
+          "fill-extrusion-color": [
+            "interpolate",
+            ["linear"],
+            ["coalesce", ["get", "render_height"], ["get", "height"], 15],
+            0, "#1c2420",
+            40, "#27352c",
+            120, "#33433a",
+          ],
+          "fill-extrusion-height": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            13, 0,
+            13.5, ["coalesce", ["get", "render_height"], ["get", "height"], 15],
+          ],
+          "fill-extrusion-base": [
+            "coalesce",
+            ["get", "render_min_height"],
+            ["get", "min_height"],
+            0,
+          ],
+          "fill-extrusion-opacity": 0.88,
+        },
+      });
 
       // ── Route sources (data-driven color: lime/cyan per route) ───────
       const routeFeatures = ROUTES.map((r, i) => ({
@@ -317,7 +480,6 @@ export function LiveOpsMap() {
         data: { type: "FeatureCollection", features: routeFeatures },
       });
 
-      // wide outer glow under the routes
       map.addLayer({
         id: "ops-route-glow",
         type: "line",
@@ -331,7 +493,6 @@ export function LiveOpsMap() {
         },
       });
 
-      // bright base line (clearly visible even without the flow dashes)
       map.addLayer({
         id: "ops-route-base",
         type: "line",
@@ -344,7 +505,6 @@ export function LiveOpsMap() {
         },
       });
 
-      // bright animated dashes flowing along the routes
       map.addLayer({
         id: "ops-route-flow",
         type: "line",
@@ -358,15 +518,9 @@ export function LiveOpsMap() {
       });
 
       // ── Pulsing markers ────────────────────────────────────────────
-      map.addImage("pulse-lime", makePulsingDot(map, "205, 255, 80", 1800), {
-        pixelRatio: 2,
-      });
-      map.addImage("pulse-amber", makePulsingDot(map, "255, 153, 0", 2200), {
-        pixelRatio: 2,
-      });
-      map.addImage("pulse-red", makePulsingDot(map, "229, 62, 62", 1400), {
-        pixelRatio: 2,
-      });
+      map.addImage("pulse-lime", makePulsingDot(map, "205, 255, 80", 1800), { pixelRatio: 2 });
+      map.addImage("pulse-amber", makePulsingDot(map, "255, 153, 0", 2200), { pixelRatio: 2 });
+      map.addImage("pulse-red", makePulsingDot(map, "229, 62, 62", 1400), { pixelRatio: 2 });
 
       map.addSource("ops-stations", {
         type: "geojson",
@@ -385,13 +539,7 @@ export function LiveOpsMap() {
         type: "symbol",
         source: "ops-stations",
         layout: {
-          "icon-image": [
-            "match",
-            ["get", "kind"],
-            "police_station",
-            "pulse-lime",
-            "pulse-amber",
-          ],
+          "icon-image": ["match", ["get", "kind"], "police_station", "pulse-lime", "pulse-amber"],
           "icon-allow-overlap": true,
           "icon-size": 0.55,
         },
@@ -413,35 +561,22 @@ export function LiveOpsMap() {
         id: "ops-incidents",
         type: "symbol",
         source: "ops-incidents",
-        layout: {
-          "icon-image": "pulse-red",
-          "icon-allow-overlap": true,
-          "icon-size": 0.65,
-        },
+        layout: { "icon-image": "pulse-red", "icon-allow-overlap": true, "icon-size": 0.65 },
       });
 
       // ── Moving vehicles ────────────────────────────────────────────
       ROUTES.forEach((r, i) => {
         vehicles.push(buildVehicle(r, 0.00007 + i * 0.00001, (i * 0.21) % 1));
-        // a second unit further down the line, for denser live movement
         vehicles.push(buildVehicle(r, 0.00006, (i * 0.21 + 0.5) % 1));
       });
 
-      map.addSource("ops-vehicles", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
+      map.addSource("ops-vehicles", { type: "geojson", data: emptyGeojson() });
 
       map.addLayer({
         id: "ops-vehicles-glow",
         type: "circle",
         source: "ops-vehicles",
-        paint: {
-          "circle-radius": 12,
-          "circle-color": ["get", "color"],
-          "circle-opacity": 0.3,
-          "circle-blur": 1,
-        },
+        paint: { "circle-radius": 12, "circle-color": ["get", "color"], "circle-opacity": 0.3, "circle-blur": 1 },
       });
 
       map.addLayer({
@@ -456,22 +591,43 @@ export function LiveOpsMap() {
         },
       });
 
+      // ── Trip route layers (hidden/empty until a trip is planned) ───
+      map.addSource("trip-route-full", { type: "geojson", data: emptyGeojson() });
+      map.addSource("trip-route-progress", { type: "geojson", data: emptyGeojson() });
+
+      map.addLayer({
+        id: "trip-route-full-glow",
+        type: "line",
+        source: "trip-route-full",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": CYAN, "line-width": 9, "line-opacity": 0.18, "line-blur": 6 },
+      });
+      map.addLayer({
+        id: "trip-route-full-base",
+        type: "line",
+        source: "trip-route-full",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#9fb8bd", "line-width": 3, "line-opacity": 0.55, "line-dasharray": [0.2, 1.6] },
+      });
+      map.addLayer({
+        id: "trip-route-progress-glow",
+        type: "line",
+        source: "trip-route-progress",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": LIME, "line-width": 13, "line-opacity": 0.4, "line-blur": 8 },
+      });
+      map.addLayer({
+        id: "trip-route-progress-base",
+        type: "line",
+        source: "trip-route-progress",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#f4ffe0", "line-width": 4.5, "line-opacity": 1 },
+      });
+
       // ── Animation loop ─────────────────────────────────────────────
       const dashSequence: number[][] = [
-        [0, 4, 3],
-        [0.5, 4, 2.5],
-        [1, 4, 2],
-        [1.5, 4, 1.5],
-        [2, 4, 1],
-        [2.5, 4, 0.5],
-        [3, 4, 0],
-        [0, 0.5, 3, 3.5],
-        [0, 1, 3, 3],
-        [0, 1.5, 3, 2.5],
-        [0, 2, 3, 2],
-        [0, 2.5, 3, 1.5],
-        [0, 3, 3, 1],
-        [0, 3.5, 3, 0.5],
+        [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
+        [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
       ];
 
       let last = performance.now();
@@ -479,22 +635,17 @@ export function LiveOpsMap() {
         const dt = now - last;
         last = now;
 
-        // flowing dashes
         const newStep = Math.floor((now / 55) % dashSequence.length);
         if (newStep !== dashStep && map.getLayer("ops-route-flow")) {
           map.setPaintProperty("ops-route-flow", "line-dasharray", dashSequence[newStep]);
           dashStep = newStep;
         }
 
-        // advance vehicles
         const features = vehicles.map((v) => {
           v.t += v.speed * dt;
           if (v.t >= 1) v.t -= 1;
-          return {
-            type: "Feature" as const,
-            properties: { color: v.color },
-            geometry: { type: "Point" as const, coordinates: vehiclePosition(v) },
-          };
+          const { point } = positionAlong(v.route, v.cum, v.total, v.t);
+          return { type: "Feature" as const, properties: { color: v.color }, geometry: { type: "Point" as const, coordinates: point } };
         });
         const src = map.getSource("ops-vehicles") as maplibregl.GeoJSONSource | undefined;
         src?.setData({ type: "FeatureCollection", features });
@@ -503,8 +654,6 @@ export function LiveOpsMap() {
       };
       raf = requestAnimationFrame(tick);
 
-      // Give tiles a moment to actually paint, then decide whether the live
-      // map is healthy enough to reveal (fading the CSS/SVG fallback away).
       settleTimer = setTimeout(() => {
         if (tileErrorCount === 0) setTilesConfirmed(true);
       }, 900);
@@ -512,23 +661,21 @@ export function LiveOpsMap() {
 
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(tripRafRef.current);
       if (settleTimer) clearTimeout(settleTimer);
       resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
     // Initialization effect must only run once on mount to avoid destroying the map instance.
-    // Subsequent updates to incidentMarkers are handled in the dedicated useEffect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
     const src = map.getSource("ops-incidents") as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
-
     src.setData({
       type: "FeatureCollection",
       features: incidentMarkers.map((marker) => ({
@@ -541,38 +688,286 @@ export function LiveOpsMap() {
 
   useEffect(() => {
     const handleIncident = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        incident_id?: string;
-        latitude?: number | null;
-        longitude?: number | null;
-      }>).detail;
-
+      const detail = (event as CustomEvent<{ incident_id?: string; latitude?: number | null; longitude?: number | null }>).detail;
       if (!detail?.incident_id || detail.latitude == null || detail.longitude == null) return;
-
       setIncidentMarkers((current) => {
-        if (current.some((marker) => marker.id === detail.incident_id)) {
-          return current;
-        }
-
-        return [
-          ...current,
-          {
-            id: detail.incident_id as string,
-            coordinates: [detail.longitude as number, detail.latitude as number],
-          },
-        ];
+        if (current.some((marker) => marker.id === detail.incident_id)) return current;
+        return [...current, { id: detail.incident_id as string, coordinates: [detail.longitude as number, detail.latitude as number] }];
       });
     };
-
     window.addEventListener("sentinel:new-incident", handleIncident);
     return () => window.removeEventListener("sentinel:new-incident", handleIncident);
   }, []);
 
+  const setAmbientVisibility = useCallback((visible: boolean) => {
+    const map = mapRef.current;
+    if (!map) return;
+    AMBIENT_LAYERS.forEach((id) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+    });
+  }, []);
+
+  const clearTrip = useCallback(() => {
+    cancelAnimationFrame(tripRafRef.current);
+    const map = mapRef.current;
+    originMarkerRef.current?.remove();
+    destMarkerRef.current?.remove();
+    puckMarkerRef.current?.remove();
+    originMarkerRef.current = null;
+    destMarkerRef.current = null;
+    puckMarkerRef.current = null;
+    if (map) {
+      (map.getSource("trip-route-full") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
+      (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
+      setAmbientVisibility(true);
+      map.flyTo({ center: CENTER, zoom: 11.4, pitch: 30, bearing: 0, duration: 1600 });
+    }
+    setTripStatus("idle");
+    setTripError(null);
+    setTripInfo(null);
+    setDestinationInput("");
+    followModeRef.current = true;
+    userDraggedRef.current = false;
+    setFollowMode(true);
+  }, [setAmbientVisibility]);
+
+  const recenterOnTrip = useCallback(() => {
+    followModeRef.current = true;
+    userDraggedRef.current = false;
+    setFollowMode(true);
+  }, []);
+
+  const planTrip = useCallback(async () => {
+    const map = mapRef.current;
+    if (!map || !destinationInput.trim()) return;
+    if (!map.getSource("trip-route-full") || !map.getSource("trip-route-progress")) {
+      setTripStatus("error");
+      setTripError("Map is still loading — try again in a moment.");
+      return;
+    }
+
+    setTripError(null);
+    setTripInfo(null);
+    setTripStatus("locating");
+
+    let origin: [number, number];
+    try {
+      origin = await getCurrentPosition();
+    } catch {
+      origin = CENTER; // fall back to the city center so the demo still works without location access
+    }
+
+    setTripStatus("searching");
+    let destination: [number, number];
+    let destinationLabel = destinationInput.trim();
+    try {
+      const geocoded = await geocodeDestination(destinationInput.trim());
+      destination = geocoded.point;
+      destinationLabel = geocoded.label;
+    } catch (err) {
+      setTripStatus("error");
+      setTripError(err instanceof Error ? err.message : "Couldn't find that destination.");
+      return;
+    }
+
+    setTripStatus("routing");
+    let routeCoords: [number, number][];
+    let distanceKm: number;
+    let durationMin: number;
+    try {
+      const route = await fetchDrivingRoute(origin, destination);
+      routeCoords = route.coords;
+      distanceKm = route.distanceKm;
+      durationMin = route.durationMin;
+    } catch {
+      // OSRM unreachable — fall back to a smoothed straight line so the
+      // feature still demonstrates the route/camera experience.
+      routeCoords = origin[0] === destination[0] && origin[1] === destination[1] ? [origin] : smoothRoute([origin, destination]);
+      distanceKm = haversineKm(origin, destination);
+      durationMin = (distanceKm / 35) * 60; // assume ~35km/h average city pace
+    }
+
+    if (routeCoords.length < 2) {
+      setTripStatus("error");
+      setTripError("That destination is too close to your current location.");
+      return;
+    }
+
+    setAmbientVisibility(false);
+
+    (map.getSource("trip-route-full") as maplibregl.GeoJSONSource | undefined)?.setData(lineFeature(routeCoords));
+    (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
+
+    const originEl = document.createElement("div");
+    originEl.className = "ops-trip-marker ops-trip-marker--origin";
+    originEl.innerHTML = `<span class="ops-trip-marker-pulse"></span><span class="ops-trip-marker-core"></span>`;
+    originMarkerRef.current?.remove();
+    originMarkerRef.current = new maplibregl.Marker({ element: originEl, anchor: "center" }).setLngLat(origin).addTo(map);
+
+    const destEl = document.createElement("div");
+    destEl.className = "ops-trip-marker ops-trip-marker--dest";
+    destEl.innerHTML = `<span class="ops-trip-marker-pin"></span>`;
+    destMarkerRef.current?.remove();
+    destMarkerRef.current = new maplibregl.Marker({ element: destEl, anchor: "bottom" }).setLngLat(destination).addTo(map);
+
+    const puckEl = document.createElement("div");
+    puckEl.className = "ops-trip-puck";
+    puckEl.innerHTML = `<span class="ops-trip-puck-glow"></span><span class="ops-trip-puck-arrow"></span>`;
+    puckMarkerRef.current?.remove();
+    puckMarkerRef.current = new maplibregl.Marker({ element: puckEl, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" })
+      .setLngLat(origin)
+      .addTo(map);
+
+    // Fit the whole route on screen first, then tilt into a cinematic 3D
+    // chase view before the puck starts moving.
+    const bounds = routeCoords.reduce(
+      (b, c) => b.extend(c),
+      new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0])
+    );
+    map.fitBounds(bounds, { padding: { top: 170, bottom: 140, left: 60, right: 60 }, pitch: 0, bearing: 0, duration: 1100 });
+
+    const { cum, total } = pathMetrics(routeCoords);
+    const initialHeading = positionAlong(routeCoords, cum, total, 0).heading;
+
+    followModeRef.current = true;
+    userDraggedRef.current = false;
+    setFollowMode(true);
+
+    window.setTimeout(() => {
+      map.flyTo({ center: origin, zoom: 16.5, pitch: 58, bearing: initialHeading, duration: 2200, essential: true });
+    }, 1150);
+
+    setTripInfo({ distanceKm, durationMin, destinationLabel });
+    setTripStatus("active");
+
+    const durationMs = Math.min(22000, Math.max(9000, distanceKm * 900));
+    const start = performance.now();
+
+    const animate = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const { point, index, heading } = positionAlong(routeCoords, cum, total, t);
+      const traveled: [number, number][] = [...routeCoords.slice(0, index + 1), point];
+
+      (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(lineFeature(traveled));
+      puckMarkerRef.current?.setLngLat(point);
+      puckMarkerRef.current?.setRotation(heading);
+
+      if (followModeRef.current && !userDraggedRef.current) {
+        map.jumpTo({ center: point, bearing: heading, pitch: 58, zoom: map.getZoom() < 15 ? 16.5 : map.getZoom() });
+      }
+
+      if (t < 1) {
+        tripRafRef.current = requestAnimationFrame(animate);
+      } else {
+        // Arrived — settle into a wide cinematic overview of the full route.
+        window.setTimeout(() => {
+          map.flyTo({ center: bounds.getCenter(), zoom: map.getZoom() - 1.4, pitch: 45, bearing: 0, duration: 2000 });
+        }, 300);
+      }
+    };
+    tripRafRef.current = requestAnimationFrame(animate);
+  }, [destinationInput, setAmbientVisibility]);
+
   return (
     <>
-      <div ref={containerRef} className="ops-map-canvas" aria-hidden="true" />
+      <div ref={containerRef} className="ops-map-canvas" />
       <MapFallbackScene hidden={tilesConfirmed} />
+      <TripPlanner
+        destinationInput={destinationInput}
+        onDestinationInputChange={setDestinationInput}
+        status={tripStatus}
+        error={tripError}
+        info={tripInfo}
+        onPlan={planTrip}
+        onClear={clearTrip}
+        followMode={followMode}
+        onRecenter={recenterOnTrip}
+      />
     </>
+  );
+}
+
+function TripPlanner({
+  destinationInput,
+  onDestinationInputChange,
+  status,
+  error,
+  info,
+  onPlan,
+  onClear,
+  followMode,
+  onRecenter,
+}: {
+  destinationInput: string;
+  onDestinationInputChange: (value: string) => void;
+  status: TripStatus;
+  error: string | null;
+  info: TripInfo | null;
+  onPlan: () => void;
+  onClear: () => void;
+  followMode: boolean;
+  onRecenter: () => void;
+}) {
+  const isBusy = status === "locating" || status === "searching" || status === "routing";
+  const hasTrip = status === "active" || isBusy;
+
+  const statusLabel =
+    status === "locating"
+      ? "Finding your location…"
+      : status === "searching"
+      ? "Searching destination…"
+      : status === "routing"
+      ? "Plotting route…"
+      : null;
+
+  return (
+    <div className="ops-trip-bar" role="search">
+      <form
+        className="ops-trip-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!isBusy) onPlan();
+        }}
+      >
+        <span className="ops-trip-icon" aria-hidden="true">
+          ⌖
+        </span>
+        <input
+          className="ops-trip-input"
+          type="text"
+          placeholder="Where are you headed? (e.g. MG Road, Bengaluru)"
+          value={destinationInput}
+          onChange={(e) => onDestinationInputChange(e.target.value)}
+          disabled={isBusy}
+        />
+        {hasTrip ? (
+          <button type="button" className="ops-trip-clear" onClick={onClear} aria-label="Clear route">
+            ✕
+          </button>
+        ) : null}
+        <button type="submit" className="ops-trip-go" disabled={isBusy || !destinationInput.trim()}>
+          {isBusy ? "…" : "Go"}
+        </button>
+      </form>
+
+      {statusLabel ? <div className="ops-trip-status">{statusLabel}</div> : null}
+      {error ? <div className="ops-trip-status ops-trip-status--error">{error}</div> : null}
+
+      {info ? (
+        <div className="ops-trip-info">
+          <span className="ops-trip-info-dest">{info.destinationLabel.split(",").slice(0, 2).join(", ")}</span>
+          <span className="ops-trip-info-stats">
+            {info.distanceKm.toFixed(1)} km · {Math.round(info.durationMin)} min
+          </span>
+        </div>
+      ) : null}
+
+      {status === "active" && !followMode ? (
+        <button type="button" className="ops-trip-recenter" onClick={onRecenter}>
+          Re-center on route
+        </button>
+      ) : null}
+    </div>
   );
 }
 
