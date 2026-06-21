@@ -184,57 +184,62 @@ function renderIncidentCard(incident: {
   corridor: string;
   predicted_priority?: string;
   status: string;
+  reported_at?: string;
 }): string {
   const priority = incident.predicted_priority || 'P4';
-  const bg = PRIORITY_BG[priority] ?? '#F3F4F6';
-  const text = PRIORITY_TEXT[priority] ?? '#374151';
+  const bg = PRIORITY_BG[priority] ?? 'rgba(255,255,255,0.1)';
+  const text = PRIORITY_TEXT[priority] ?? '#FFFFFF';
+
+  // Format date if available
+  const dateStr = incident.reported_at ? new Date(incident.reported_at).toLocaleString('en-IN', {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  }) : 'Just now';
 
   return `
     <div style="
-      background: white;
-      border: 1px solid #E5E5E5;
+      background: rgba(17, 17, 17, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.1);
       border-radius: 14px;
       padding: 12px 16px;
       width: max-content;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
       font-family: Inter, system-ui, sans-serif;
       display: flex;
-      align-items: center;
-      gap: 16px;
+      flex-direction: column;
+      gap: 8px;
     ">
-      <!-- ID -->
-      <span style="font-size:11px;color:#9CA3AF;font-weight:500;white-space:nowrap;letter-spacing:0.03em">
-        ${incident.incident_id}
-      </span>
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+        <span style="font-size:13px;font-weight:600;color:#FFFFFF;white-space:nowrap">
+          ${incident.incident_type}
+        </span>
+        <span style="
+          background:${bg};
+          color:${text};
+          font-size:10px;
+          font-weight:700;
+          padding:3px 8px;
+          border-radius:9999px;
+          white-space:nowrap;
+          letter-spacing:0.03em;
+        ">
+          ${priority}
+        </span>
+      </div>
 
-      <!-- Type -->
-      <span style="font-size:13px;font-weight:600;color:#111111;white-space:nowrap">
-        ${incident.incident_type}
-      </span>
-
-      <!-- Corridor -->
-      <span style="font-size:12px;color:#6B7280;white-space:nowrap;flex:1">
-        ${incident.corridor || ''}
-      </span>
-
-      <!-- Priority badge -->
-      <span style="
-        background:${bg};
-        color:${text};
-        font-size:11px;
-        font-weight:700;
-        padding:3px 10px;
-        border-radius:9999px;
-        white-space:nowrap;
-        letter-spacing:0.03em;
-      ">
-        ${priority}
-      </span>
-
-      <!-- Status -->
-      <span style="font-size:11px;color:#6B7280;white-space:nowrap;font-weight:500">
-        ${(incident.status || 'UNKNOWN').replace(/_/g, ' ')}
-      </span>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <span style="font-size:12px;color:#A0A0A0;white-space:nowrap">
+          ${incident.corridor || 'Unknown location'}
+        </span>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+          <span style="font-size:11px;color:#6B7280;white-space:nowrap;font-weight:500">
+            ${(incident.status || 'UNKNOWN').replace(/_/g, ' ')}
+          </span>
+          <span style="font-size:11px;color:#6B7280;white-space:nowrap">
+            ${dateStr}
+          </span>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -333,7 +338,6 @@ export function BengaluruMap({
   const [layers, setLayers] = useState({
     stations: false,
     incidents: true,
-    heatmap: false,
     coverage: false,
   });
   const [isMapLoaded, setIsMapLoaded] = useState(false);
@@ -442,41 +446,6 @@ export function BengaluruMap({
           'fill-extrusion-opacity': 0.65,
         },
       });
-
-      // ── Risk heatmap source (muted, professional) ──
-      if (riskZones.length > 0) {
-        map.addSource('risk-zones', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: riskZones.map(z => ({
-              type: 'Feature',
-              geometry: { type: 'Point', coordinates: [77.5946, 12.9716] }, // placeholder — actual corridor centroids
-              properties: { risk_score: z.risk_score, corridor: z.corridor },
-            })),
-          },
-        });
-
-        map.addLayer({
-          id: 'risk-heatmap',
-          type: 'heatmap',
-          source: 'risk-zones',
-          layout: { visibility: 'none' },
-          paint: {
-            'heatmap-weight': ['interpolate', ['linear'], ['get', 'risk_score'], 0, 0, 100, 1],
-            'heatmap-intensity': 0.8,
-            'heatmap-radius': 40,
-            'heatmap-color': [
-              'interpolate', ['linear'], ['heatmap-density'],
-              0, 'rgba(0,0,0,0)',
-              0.4, 'rgba(246,173,85,0.35)',
-              0.8, 'rgba(229,62,62,0.5)',
-              1, 'rgba(229,62,62,0.65)',
-            ],
-            'heatmap-opacity': 0.7,
-          },
-        });
-      }
     });
 
     return () => {
@@ -497,7 +466,7 @@ export function BengaluruMap({
   // ── Update station markers when stations change ──
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !isMapLoaded || !map.isStyleLoaded()) return;
+    if (!map || !isMapLoaded) return;
 
     // Clear existing markers
     markersRef.current.forEach(m => m.remove());
@@ -547,7 +516,7 @@ export function BengaluruMap({
   // ── Update incident markers when incidents or highlighted ID changes ──
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !isMapLoaded || !map.isStyleLoaded()) return;
+    if (!map || !isMapLoaded) return;
 
     incidentMarkersRef.current.forEach(m => m.remove());
     incidentMarkersRef.current = [];
@@ -562,11 +531,14 @@ export function BengaluruMap({
       const el = createIncidentMarker(p, inc.status, isHighlighted);
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([inc.longitude, inc.latitude])
+        .setLngLat([Number(inc.longitude), Number(inc.latitude)])
         .addTo(map);
+
+      console.log(`Marker incident ${inc.incident_id}: [${Number(inc.longitude)}, ${Number(inc.latitude)}]`);
 
       el.addEventListener('mouseenter', () => {
         if (!hoverCardRef.current || !mapContainer.current) return;
+        hoverCardRef.current.dataset.source = 'marker';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         hoverCardRef.current.innerHTML = renderIncidentCard(inc as any);
         const point = map.project([inc.longitude!, inc.latitude!]);
@@ -582,7 +554,9 @@ export function BengaluruMap({
       });
 
       el.addEventListener('mouseleave', () => {
-        if (hoverCardRef.current) hoverCardRef.current.style.opacity = '0';
+        if (hoverCardRef.current && hoverCardRef.current.dataset.source === 'marker') {
+          hoverCardRef.current.style.opacity = '0';
+        }
       });
 
       el.addEventListener('click', () => {
@@ -596,6 +570,9 @@ export function BengaluruMap({
 
       incidentMarkersRef.current.push(marker);
     });
+
+    return () => {
+    };
   }, [incidents, layers.incidents, onIncidentClick, isMapLoaded, highlightedIncidentId]);
 
   // ── Fly to highlighted incident ──
@@ -635,14 +612,6 @@ export function BengaluruMap({
     }
   }, [flyToIncident, incidents, isMapLoaded]);
 
-  // ── Toggle heatmap visibility ──
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    if (!map.getLayer('risk-heatmap')) return;
-    map.setLayoutProperty('risk-heatmap', 'visibility', layers.heatmap ? 'visible' : 'none');
-  }, [layers.heatmap]);
-
   return (
     <div className="map-container" style={{ height, flex: 1, position: 'relative', width: '100%', margin: 0, padding: 0, border: 'none' }}>
       <div ref={mapContainer} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
@@ -664,8 +633,6 @@ export function BengaluruMap({
             {[
               { key: 'stations', label: 'Station Markers' },
               { key: 'incidents', label: 'Incident Pins' },
-              { key: 'heatmap', label: 'Risk Heatmap' },
-              { key: 'coverage', label: 'Coverage Radius' },
             ].map(({ key, label }) => (
               <label key={key} className="map-checkbox-row" style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0 }}>
                 <input
@@ -680,6 +647,7 @@ export function BengaluruMap({
           </div>
         </div>
       )}
+
     </div>
   );
 }
