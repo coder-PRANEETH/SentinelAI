@@ -562,8 +562,7 @@ a {
   background: rgba(255, 255, 255, 0.1);
 }
 .ops-trip-status,
-.ops-trip-info,
-.ops-trip-recenter {
+.ops-trip-info {
   font-size: 12px;
   padding: 7px 16px;
   border-radius: 9999px;
@@ -596,16 +595,6 @@ a {
   color: #cdff50;
   font-weight: 700;
 }
-.ops-trip-recenter {
-  cursor: pointer;
-  color: #cdff50;
-  font-weight: 600;
-  border-color: rgba(205, 255, 80, 0.35);
-}
-.ops-trip-recenter:hover {
-  background: rgba(205, 255, 80, 0.1);
-}
-
 /* Origin "you are here" marker */
 .ops-trip-marker--origin {
   position: relative;
@@ -651,36 +640,6 @@ a {
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
   box-shadow: 0 0 14px rgba(255, 92, 122, 0.8);
-}
-
-/* Moving puck (the "vehicle" traveling the route) */
-.ops-trip-puck {
-  position: relative;
-  width: 26px;
-  height: 26px;
-}
-.ops-trip-puck-glow {
-  position: absolute;
-  inset: -9px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(205, 255, 80, 0.5), transparent 70%);
-  animation: sentinel-live-pulse 1.4s ease-in-out infinite;
-}
-.ops-trip-puck-arrow {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.ops-trip-puck-arrow::before {
-  content: "";
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-bottom: 14px solid #cdff50;
-  filter: drop-shadow(0 0 6px rgba(205, 255, 80, 0.9));
 }
 
 @media (max-width: 980px) {

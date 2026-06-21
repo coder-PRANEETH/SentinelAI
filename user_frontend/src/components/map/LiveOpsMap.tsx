@@ -234,6 +234,36 @@ function buildVehicle(route: RouteDef, speed: number, offset: number): Vehicle {
   return { route: route.coords, color: route.color, cum, total, t: offset, speed };
 }
 
+// ── Cinematic intro: buildings rising from flat footprints + a slowly
+// orbiting "sun" that sweeps light across the extruded skyline ───────────
+
+/** Building height expression scaled by a 0..1 growth progress, so the
+ *  skyline can animate from flat footprints up to full height. */
+function buildingsHeightExpression(progress: number) {
+  return [
+    "interpolate",
+    ["linear"],
+    ["zoom"],
+    13, 0,
+    13.5, ["*", progress, ["coalesce", ["get", "render_height"], ["get", "height"], 15]],
+  ] as unknown as maplibregl.ExpressionSpecification;
+}
+
+/** Eases building heights from 0 to full over `durationMs`. Reports each
+ *  requestAnimationFrame id via `onRaf` so the caller can cancel on unmount. */
+function animateBuildingGrowth(map: maplibregl.Map, durationMs: number, onRaf: (id: number) => void) {
+  const start = performance.now();
+  const step = (now: number) => {
+    const p = Math.min(1, (now - start) / durationMs);
+    const eased = 1 - Math.pow(1 - p, 3);
+    if (map.getLayer("ops-3d-buildings")) {
+      map.setPaintProperty("ops-3d-buildings", "fill-extrusion-height", buildingsHeightExpression(eased));
+    }
+    if (p < 1) onRaf(requestAnimationFrame(step));
+  };
+  onRaf(requestAnimationFrame(step));
+}
+
 /** Canvas-based pulsing-dot StyleImage (the canonical MapLibre technique). */
 function makePulsingDot(map: maplibregl.Map, rgb: string, period: number) {
   const size = 130;
@@ -376,18 +406,24 @@ export function LiveOpsMap() {
   const [tripStatus, setTripStatus] = useState<TripStatus>("idle");
   const [tripError, setTripError] = useState<string | null>(null);
   const [tripInfo, setTripInfo] = useState<TripInfo | null>(null);
-  const [followMode, setFollowMode] = useState(true);
 
-  const tripRafRef = useRef(0);
+  const introRafRef = useRef(0);
   const originMarkerRef = useRef<maplibregl.Marker | null>(null);
   const destMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const puckMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const followModeRef = useRef(true);
-  const userDraggedRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const prefersReducedMotion =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Always boot on the cheap ambient camera (modest zoom/pitch) so the
+    // initial tile request is small and "load" fires fast and reliably.
+    // The cinematic close-up is a *flyTo* after load, not the starting
+    // camera — an animated approach streams tiles in progressively along
+    // the path, whereas opening directly on a steep, high-zoom horizon
+    // shot can make the very first tile batch huge enough that "load"
+    // takes many seconds (or longer) to fire on a cold/slow connection.
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: MAP_STYLE,
@@ -406,24 +442,14 @@ export function LiveOpsMap() {
     let raf = 0;
     let dashStep = 0;
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
-    let tileErrorCount = 0;
+    let introTimer1: ReturnType<typeof setTimeout> | null = null;
+    let introTimer2: ReturnType<typeof setTimeout> | null = null;
+    let introTimer3: ReturnType<typeof setTimeout> | null = null;
     const vehicles: Vehicle[] = [];
 
     map.on("styleimagemissing", (e) => {
       if (map.hasImage(e.id)) return;
       map.addImage(e.id, transparentPlaceholder());
-    });
-
-    map.on("error", () => {
-      tileErrorCount += 1;
-    });
-
-    map.on("dragstart", (e) => {
-      if (e.originalEvent) {
-        userDraggedRef.current = true;
-        followModeRef.current = false;
-        setFollowMode(false);
-      }
     });
 
     const resizeObserver = new ResizeObserver(() => map.resize());
@@ -451,13 +477,7 @@ export function LiveOpsMap() {
             40, "#27352c",
             120, "#33433a",
           ],
-          "fill-extrusion-height": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            13, 0,
-            13.5, ["coalesce", ["get", "render_height"], ["get", "height"], 15],
-          ],
+          "fill-extrusion-height": buildingsHeightExpression(prefersReducedMotion ? 1 : 0),
           "fill-extrusion-base": [
             "coalesce",
             ["get", "render_min_height"],
@@ -467,6 +487,34 @@ export function LiveOpsMap() {
           "fill-extrusion-opacity": 0.88,
         },
       });
+
+      // ── Moody night sky + a "sun" that slowly orbits the skyline,
+      // sweeping directional light across the extruded buildings ───────
+      map.setSky({
+        "sky-color": "#02050a",
+        "horizon-color": "#0c241d",
+        "sky-horizon-blend": 0.7,
+        "atmosphere-blend": 0.6,
+      });
+      map.setLight({ anchor: "map", color: "#bfe9ff", intensity: 0.55, position: [1.4, 210, 35] });
+
+      // ── Cinematic intro flythrough: dive in from the ambient overview
+      // into a close 3D skyline shot with buildings rising from flat
+      // footprints, hold briefly, then pull back out. Skipped for
+      // prefers-reduced-motion (buildings already at full height). ──────
+      if (!prefersReducedMotion) {
+        introTimer1 = setTimeout(() => {
+          map.flyTo({ center: CENTER, zoom: 16.2, pitch: 70, bearing: -35, duration: 2400, curve: 1.3, speed: 0.85, essential: true });
+        }, 200);
+        introTimer2 = setTimeout(() => {
+          animateBuildingGrowth(map, 1500, (id) => {
+            introRafRef.current = id;
+          });
+        }, 2300);
+        introTimer3 = setTimeout(() => {
+          map.flyTo({ center: CENTER, zoom: 11.4, pitch: 30, bearing: 0, duration: 2600, curve: 1.4, speed: 0.9, essential: true });
+        }, 4800);
+      }
 
       // ── Route sources (data-driven color: lime/cyan per route) ───────
       const routeFeatures = ROUTES.map((r, i) => ({
@@ -631,6 +679,7 @@ export function LiveOpsMap() {
       ];
 
       let last = performance.now();
+      let lastLightUpdate = 0;
       const tick = (now: number) => {
         const dt = now - last;
         last = now;
@@ -639,6 +688,14 @@ export function LiveOpsMap() {
         if (newStep !== dashStep && map.getLayer("ops-route-flow")) {
           map.setPaintProperty("ops-route-flow", "line-dasharray", dashSequence[newStep]);
           dashStep = newStep;
+        }
+
+        // slowly orbiting "sun" — sweeps directional light across the
+        // extruded skyline (full revolution roughly every 70s)
+        if (now - lastLightUpdate > 220) {
+          lastLightUpdate = now;
+          const azimuth = (now / 1000) * 5.1;
+          map.setLight({ anchor: "map", color: "#bfe9ff", intensity: 0.55, position: [1.4, azimuth % 360, 35] });
         }
 
         const features = vehicles.map((v) => {
@@ -654,15 +711,21 @@ export function LiveOpsMap() {
       };
       raf = requestAnimationFrame(tick);
 
-      settleTimer = setTimeout(() => {
-        if (tileErrorCount === 0) setTilesConfirmed(true);
-      }, 900);
+      // Reaching "load" already means the style fetched and parsed
+      // successfully — that's the failure mode this fallback guards
+      // against (OpenFreeMap unreachable). Individual tile 404s beyond
+      // data coverage (common at the intro's steep, far-horizon pitch)
+      // are normal and shouldn't keep the CSS scene up forever.
+      settleTimer = setTimeout(() => setTilesConfirmed(true), 900);
     });
 
     return () => {
       cancelAnimationFrame(raf);
-      cancelAnimationFrame(tripRafRef.current);
+      cancelAnimationFrame(introRafRef.current);
       if (settleTimer) clearTimeout(settleTimer);
+      if (introTimer1) clearTimeout(introTimer1);
+      if (introTimer2) clearTimeout(introTimer2);
+      if (introTimer3) clearTimeout(introTimer3);
       resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
@@ -708,14 +771,11 @@ export function LiveOpsMap() {
   }, []);
 
   const clearTrip = useCallback(() => {
-    cancelAnimationFrame(tripRafRef.current);
     const map = mapRef.current;
     originMarkerRef.current?.remove();
     destMarkerRef.current?.remove();
-    puckMarkerRef.current?.remove();
     originMarkerRef.current = null;
     destMarkerRef.current = null;
-    puckMarkerRef.current = null;
     if (map) {
       (map.getSource("trip-route-full") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
       (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
@@ -726,16 +786,7 @@ export function LiveOpsMap() {
     setTripError(null);
     setTripInfo(null);
     setDestinationInput("");
-    followModeRef.current = true;
-    userDraggedRef.current = false;
-    setFollowMode(true);
   }, [setAmbientVisibility]);
-
-  const recenterOnTrip = useCallback(() => {
-    followModeRef.current = true;
-    userDraggedRef.current = false;
-    setFollowMode(true);
-  }, []);
 
   const planTrip = useCallback(async () => {
     const map = mapRef.current;
@@ -795,8 +846,11 @@ export function LiveOpsMap() {
 
     setAmbientVisibility(false);
 
+    // Just draw the path — the full route, drawn once, no moving puck or
+    // chase camera. "trip-route-progress" is left empty so only the dimmer
+    // "full" line layers are visible.
     (map.getSource("trip-route-full") as maplibregl.GeoJSONSource | undefined)?.setData(lineFeature(routeCoords));
-    (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(emptyGeojson());
+    (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(lineFeature(routeCoords));
 
     const originEl = document.createElement("div");
     originEl.className = "ops-trip-marker ops-trip-marker--origin";
@@ -810,62 +864,15 @@ export function LiveOpsMap() {
     destMarkerRef.current?.remove();
     destMarkerRef.current = new maplibregl.Marker({ element: destEl, anchor: "bottom" }).setLngLat(destination).addTo(map);
 
-    const puckEl = document.createElement("div");
-    puckEl.className = "ops-trip-puck";
-    puckEl.innerHTML = `<span class="ops-trip-puck-glow"></span><span class="ops-trip-puck-arrow"></span>`;
-    puckMarkerRef.current?.remove();
-    puckMarkerRef.current = new maplibregl.Marker({ element: puckEl, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" })
-      .setLngLat(origin)
-      .addTo(map);
-
-    // Fit the whole route on screen first, then tilt into a cinematic 3D
-    // chase view before the puck starts moving.
+    // Fit the whole route on screen and leave it there — no flyTo chase.
     const bounds = routeCoords.reduce(
       (b, c) => b.extend(c),
       new maplibregl.LngLatBounds(routeCoords[0], routeCoords[0])
     );
-    map.fitBounds(bounds, { padding: { top: 170, bottom: 140, left: 60, right: 60 }, pitch: 0, bearing: 0, duration: 1100 });
-
-    const { cum, total } = pathMetrics(routeCoords);
-    const initialHeading = positionAlong(routeCoords, cum, total, 0).heading;
-
-    followModeRef.current = true;
-    userDraggedRef.current = false;
-    setFollowMode(true);
-
-    window.setTimeout(() => {
-      map.flyTo({ center: origin, zoom: 16.5, pitch: 58, bearing: initialHeading, duration: 2200, essential: true });
-    }, 1150);
+    map.fitBounds(bounds, { padding: { top: 170, bottom: 140, left: 60, right: 60 }, pitch: 0, bearing: 0, duration: 1000 });
 
     setTripInfo({ distanceKm, durationMin, destinationLabel });
     setTripStatus("active");
-
-    const durationMs = Math.min(22000, Math.max(9000, distanceKm * 900));
-    const start = performance.now();
-
-    const animate = (now: number) => {
-      const t = Math.min(1, (now - start) / durationMs);
-      const { point, index, heading } = positionAlong(routeCoords, cum, total, t);
-      const traveled: [number, number][] = [...routeCoords.slice(0, index + 1), point];
-
-      (map.getSource("trip-route-progress") as maplibregl.GeoJSONSource | undefined)?.setData(lineFeature(traveled));
-      puckMarkerRef.current?.setLngLat(point);
-      puckMarkerRef.current?.setRotation(heading);
-
-      if (followModeRef.current && !userDraggedRef.current) {
-        map.jumpTo({ center: point, bearing: heading, pitch: 58, zoom: map.getZoom() < 15 ? 16.5 : map.getZoom() });
-      }
-
-      if (t < 1) {
-        tripRafRef.current = requestAnimationFrame(animate);
-      } else {
-        // Arrived — settle into a wide cinematic overview of the full route.
-        window.setTimeout(() => {
-          map.flyTo({ center: bounds.getCenter(), zoom: map.getZoom() - 1.4, pitch: 45, bearing: 0, duration: 2000 });
-        }, 300);
-      }
-    };
-    tripRafRef.current = requestAnimationFrame(animate);
   }, [destinationInput, setAmbientVisibility]);
 
   return (
@@ -880,8 +887,6 @@ export function LiveOpsMap() {
         info={tripInfo}
         onPlan={planTrip}
         onClear={clearTrip}
-        followMode={followMode}
-        onRecenter={recenterOnTrip}
       />
     </>
   );
@@ -895,8 +900,6 @@ function TripPlanner({
   info,
   onPlan,
   onClear,
-  followMode,
-  onRecenter,
 }: {
   destinationInput: string;
   onDestinationInputChange: (value: string) => void;
@@ -905,8 +908,6 @@ function TripPlanner({
   info: TripInfo | null;
   onPlan: () => void;
   onClear: () => void;
-  followMode: boolean;
-  onRecenter: () => void;
 }) {
   const isBusy = status === "locating" || status === "searching" || status === "routing";
   const hasTrip = status === "active" || isBusy;
@@ -962,11 +963,6 @@ function TripPlanner({
         </div>
       ) : null}
 
-      {status === "active" && !followMode ? (
-        <button type="button" className="ops-trip-recenter" onClick={onRecenter}>
-          Re-center on route
-        </button>
-      ) : null}
     </div>
   );
 }
