@@ -6,6 +6,7 @@ flask-jwt-extended
 flask-limiter
 fastapi
 uvicorn
+a2wsgi
 pydantic
 psycopg2-binary
 sqlalchemy>=2.0

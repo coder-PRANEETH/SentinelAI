@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.wsgi import WSGIMiddleware
 from schemas import IncidentRequest, InteractiveVoiceSessionRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
 from services.extraction_service import extract_incident_fields
 from services.llm_extraction_service import extract_incident_fields_llm
@@ -44,7 +45,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SentinelAI Incident Copilot Backend")
 
-# CORS — allow frontend origins for both HTTP and WebSocket
+# ── CORS ─────────────────────────────────────────────────────────────────────
+# Single unified CORS policy covering both FastAPI and the Flask sub-app.
+# Flask-CORS is NOT initialised inside create_app() when mounted here, so
+# FastAPI's CORSMiddleware is the sole CORS layer.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:3001"],
@@ -732,3 +736,26 @@ async def interactive_voice_audio_turn(
                 os.remove(temp_file_path)
             except Exception:
                 pass
+
+# ── Flask sub-application (catch-all fallback) ────────────────────────────────
+# FastAPI evaluates its own routes first (/, /report-incident, /stt,
+# /ws/voice-call, etc.).  Any path that doesn't match a FastAPI route falls
+# through to the Flask WSGI app which handles:
+#   /auth/*  /incidents  /stations/*  /analytics/*  /dispatch
+#   /predict  /historical-search  /health  /admin/*  /feedback/*  /risk/*
+#
+# Note on WebSockets: WSGIMiddleware only handles HTTP — FastAPI's native
+# @app.websocket handlers run *before* the mount, so /ws/voice-call is safe.
+#
+# Note on CORS: Flask-CORS is intentionally NOT initialised inside
+# create_app() when running in mounted mode — FastAPI's CORSMiddleware wraps
+# the whole ASGI app (including the WSGI sub-mount) and handles all preflight
+# OPTIONS requests and response headers globally.
+
+try:
+    from app import create_app as _create_flask_app
+    _flask_app = _create_flask_app()
+    app.mount("/", WSGIMiddleware(_flask_app))
+    logger.info("[main] Flask sub-app mounted — unified backend active")
+except Exception as _flask_init_err:
+    logger.error(f"[main] Flask sub-app failed to mount: {_flask_init_err}")

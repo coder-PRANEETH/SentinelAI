@@ -44,7 +44,12 @@ def create_app(config_override: dict = None) -> Flask:
         app.config.update(config_override)
 
     # ── CORS ─────────────────────────────────────────────────────────────────
-    CORS(app, origins=cfg.CORS_ORIGINS)
+    # When this Flask app is mounted as a WSGI sub-app inside FastAPI
+    # (WSGI_MOUNTED=1), FastAPI's CORSMiddleware handles all preflight
+    # requests and response headers globally, so we skip Flask-CORS here to
+    # avoid double-setting Access-Control-* headers.
+    if not os.getenv("WSGI_MOUNTED"):
+        CORS(app, origins=cfg.CORS_ORIGINS)
 
     # ── SQLAlchemy ───────────────────────────────────────────────────────────
     from models.base import db
