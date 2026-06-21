@@ -6,14 +6,14 @@ import Link from 'next/link';
 import useSWR, { useSWRConfig } from 'swr';
 import {
   AlertTriangle, ArrowLeft, Clock, MapPin, Users, Car, Truck,
-  Shield, ExternalLink, Loader2, Check, X, Navigation, Zap, ChevronDown, ChevronUp
+  Shield, ExternalLink, Loader2, Check, X, Navigation, Zap, ChevronDown, ChevronUp, Activity
 } from 'lucide-react';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { LoadingState, ErrorState, EmptyState } from '@/components/shared/LoadingState';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api, IncidentDetail, Incident } from '@/lib/api';
-import { listStationReadiness, getStation, allocateResources, historicalSearch, getDispatchRecommendation, FinalApiError } from '@/api/finalEndpointsApi';
+import { listStationReadiness, getStation, allocateResources, historicalSearch, getDispatchRecommendation, simulateRipple, FinalApiError } from '@/api/finalEndpointsApi';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
@@ -343,6 +343,22 @@ export default function IncidentDetailPage() {
   const incidentId = params.id;
   const router = useRouter();
   const [showAllocate, setShowAllocate] = useState(false);
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [rippleData, setRippleData] = useState<any[] | null>(null);
+
+  const handleSimulateRipple = async () => {
+    if (!incident?.corridor) return;
+    setIsSimulating(true);
+    try {
+      const res = await simulateRipple(incident.corridor, incident.prediction?.road_closure_probability || 0);
+      setRippleData(res);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to simulate traffic ripple.');
+    } finally {
+      setIsSimulating(false);
+    }
+  };
 
   const { data: incident, isLoading, error } = useSWR(
     incidentId ? `/incidents/${incidentId}` : null,
@@ -532,13 +548,6 @@ export default function IncidentDetailPage() {
                       value: `${pred.predicted_resolution_minutes ?? '—'} min`,
                       sub: 'predicted duration',
                     },
-                    {
-                      label: 'Road Closure',
-                      value: pred.road_closure_recommendation ?? '—',
-                      sub: pred.road_closure_probability != null
-                        ? `${Math.round(pred.road_closure_probability * 100)}% probability`
-                        : '',
-                    },
                   ].map(({ label, value, sub }) => (
                     <div key={label} style={{ background: '#F9FAFB', borderRadius: 14, padding: '14px 16px' }}>
                       <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
@@ -548,6 +557,36 @@ export default function IncidentDetailPage() {
                       {sub && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{sub}</div>}
                     </div>
                   ))}
+
+                  {/* Road Closure Probability Gauge */}
+                  <div style={{ background: '#F9FAFB', borderRadius: 14, padding: '14px 16px', gridColumn: 'span 2' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        Road Closure Risk
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pred.road_closure_probability && pred.road_closure_probability > 0.5 ? '#DC2626' : '#6B7280' }}>
+                        {pred.road_closure_recommendation ?? '—'}
+                      </span>
+                    </div>
+                    
+                    {pred.road_closure_probability != null && (
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#111111' }}>
+                            {Math.round(pred.road_closure_probability * 100)}%
+                          </span>
+                        </div>
+                        <div style={{ height: 6, background: '#E5E7EB', borderRadius: 9999, overflow: 'hidden' }}>
+                          <div style={{ 
+                            height: '100%', 
+                            background: pred.road_closure_probability > 0.8 ? '#DC2626' : pred.road_closure_probability > 0.4 ? '#D97706' : '#10B981',
+                            width: `${Math.round(pred.road_closure_probability * 100)}%`,
+                            transition: 'width 0.5s ease-out'
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Priority reasons */}
@@ -588,6 +627,7 @@ export default function IncidentDetailPage() {
                   incidents={[incident as Incident]}
                   height="100%"
                   showLayerControls={false}
+                  rippleNodes={rippleData || []}
                 />
               </div>
             ) : (
@@ -678,6 +718,26 @@ export default function IncidentDetailPage() {
                 >
                   <Check size={14} style={{ color: '#6B7280' }} /> Submit Feedback
                 </Link>
+
+                {incident.corridor && incident.prediction?.road_closure_probability && incident.prediction.road_closure_probability > 0.4 ? (
+                  <button
+                    onClick={handleSimulateRipple}
+                    disabled={isSimulating}
+                    style={{ cursor: isSimulating ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FEF3C7', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#92400E', border: '1px solid #FDE68A' }}
+                  >
+                    {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} style={{ color: '#D97706' }} />} Simulate Traffic Ripple
+                  </button>
+                ) : null}
+
+                {rippleData && (
+                  <div style={{ marginTop: 8, padding: 12, background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E5E5' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#111111', marginBottom: 6 }}>Ripple Simulation Complete</div>
+                    <div style={{ fontSize: 12, color: '#6B7280' }}>
+                      <strong style={{ color: '#DC2626' }}>{rippleData.length}</strong> intersections affected<br/>
+                      Max delay: {Math.max(0, ...rippleData.map(r => r.time_taken_minutes))} min
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

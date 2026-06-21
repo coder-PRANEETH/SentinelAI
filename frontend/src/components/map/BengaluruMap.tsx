@@ -324,24 +324,26 @@ interface BengaluruMapProps {
   highlightedIncidentId?: string | null;
   /** If true, automatically fly to the first incident with coordinates on load. */
   flyToIncident?: boolean;
+  rippleNodes?: any[];
 }
 
 export function BengaluruMap({
   stations = [],
   incidents = [],
-  riskZones = [],
   onStationClick,
   onIncidentClick,
   height = '480px',
   showLayerControls = true,
   highlightedIncidentId = null,
   flyToIncident = false,
+  rippleNodes = [],
 }: BengaluruMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const hoverCardRef = useRef<HTMLDivElement | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const incidentMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const rippleMarkersRef = useRef<maplibregl.Marker[]>([]);
 
   const [layers, setLayers] = useState({
     stations: false,
@@ -468,7 +470,6 @@ export function BengaluruMap({
       map.remove();
       mapRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Update station markers when stations change ──
@@ -549,7 +550,7 @@ export function BengaluruMap({
         .setLngLat([Number(inc.longitude), Number(inc.latitude)])
         .addTo(map);
 
-      console.log(`Marker incident ${inc.incident_id}: [${Number(inc.longitude)}, ${Number(inc.latitude)}]`);
+      // Marker incident coordinates
 
       el.addEventListener('mouseenter', () => {
         if (!hoverCardRef.current || !mapContainer.current) return;
@@ -633,6 +634,48 @@ export function BengaluruMap({
       }
     }
   }, [flyToIncident, incidents, isMapLoaded]);
+
+  // ── Render Ripple Nodes ───────────────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapLoaded) return;
+
+    rippleMarkersRef.current.forEach(m => m.remove());
+    rippleMarkersRef.current = [];
+
+    rippleNodes.forEach(node => {
+      if (!node.coordinates?.lat || !node.coordinates?.lon) return;
+
+      const el = document.createElement('div');
+      el.style.cssText = `
+        width: 16px;
+        height: 16px;
+        background: rgba(220, 38, 38, 0.6);
+        border: 2px solid #DC2626;
+        border-radius: 50%;
+        animation: sentinel-pulse-anim 1.5s infinite alternate;
+        pointer-events: none;
+      `;
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([node.coordinates.lon, node.coordinates.lat])
+        .addTo(map);
+
+      rippleMarkersRef.current.push(marker);
+    });
+
+    if (rippleNodes.length > 0 && rippleNodes[0].coordinates) {
+      map.flyTo({
+        center: [rippleNodes[0].coordinates.lon, rippleNodes[0].coordinates.lat],
+        zoom: 13,
+        pitch: 45,
+      });
+    }
+
+    return () => {
+      rippleMarkersRef.current.forEach(m => m.remove());
+    };
+  }, [rippleNodes, isMapLoaded]);
 
   return (
     <div className="map-container" style={{ height, flex: 1, position: 'relative', width: '100%', margin: 0, padding: 0, border: 'none' }}>

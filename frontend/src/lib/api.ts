@@ -455,7 +455,7 @@ export interface HistoricalSearchBody {
   min_similarity?: number;
 }
 
-export interface HistoricalSearchResponse extends HistoricalContext {}
+export type HistoricalSearchResponse = HistoricalContext;
 
 export interface ReadinessQueryParams {
   officers?: number;
@@ -549,6 +549,7 @@ export interface RiskZone {
   incident_count_30d: number;
   p1_p2_fraction: number;
   last_updated: string;
+  rate_ratio: number;
 }
 
 export interface ModelStatus {

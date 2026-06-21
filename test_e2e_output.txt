@@ -1,0 +1,25 @@
+Starting E2E Test...
+
+[1] Submitting Manual Incident to final_endpoints/predict...
+Response Status: 200
+Predictions: {'expected_resolution_minutes': 47.5, 'priority': 'high', 'priority_confidence': 51.55, 'road_closure_probability': 26.79, 'road_closure_required': False}
+Incident ID: INC-2026-000112
+
+--- Latest Incidents via API ---
+INC-2026-000112 - vehicle_breakdown - REPORTED
+INC-2026-000111 - vehicle_breakdown - REPORTED
+INC-2026-000110 - vehicle_breakdown - REPORTED
+INC-2026-000109 - vehicle_breakdown - REPORTED
+INC-2026-000108 - vehicle_breakdown - REPORTED
+=> Manual incident found in DB!
+
+[3] Testing Dispatch Recommendation...
+Dispatch Response Status: 400
+Dispatch Response: {'error': "'incident_text' field is required."}
+
+[2] Submitting Voice Incident to backend/interactive-voice-audio-turn...
+Response Status: 200
+Voice Turn Result: There is a major accident on Tumkur Road involving a truck.  Traffic is blocked.
+Is Complete: True
+Incident Object: {'incident_id': 'INC-20260621-57175', 'event_type': 'congestion', 'vehicle_type': 'heavy_vehicle', 'location_name': 'Tumkur Road', 'corridor': 'Tumkur Road', 'latitude': None, 'longitude': None, 'location_source': None, 'location_confidence': None, 'severity': 'high', 'confidence': 0.9, 'severity_score': 12, 'severity_reasons': ['involves heavy vehicle or bus', 'road or lane blocked', 'traffic congestion building', 'accident or injury reported'], 'description': 'There is a major accident on Tumkur Road involving a truck.  Traffic is blocked.', 'timestamp': '2026-06-21T09:39:40.856606Z', 'summary': 'Incident Summary\n\nHeavy vehicle congestion reported near Tumkur Road on Tumkur Road.\n\nSeverity: high\n\nReason:\nInvolves heavy vehicle or bus. Road or lane blocked. Traffic congestion building. Accident or injury reported.\n\nCoordinates:\nUnknown\n\nRecommended Action:\nDispatch nearest traffic response unit immediately and alert control room supervisor.'}
+Simulating frontend submit for voice report...

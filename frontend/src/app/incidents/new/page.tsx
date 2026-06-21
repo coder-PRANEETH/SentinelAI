@@ -512,7 +512,7 @@ export default function NewIncidentPage() {
 
   const isSubmitDisabled = (!corridor || !location) || predicting;
 
-  const FieldLabel = ({ field, label }: { field: string; label: string }) => (
+  const renderFieldLabel = (field: string, label: string) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
       <span className="form-label">{label}</span>
       {aiFilledFields.has(field) && !editedFields.has(field) && (
@@ -755,7 +755,7 @@ export default function NewIncidentPage() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div className="form-group">
-                    <FieldLabel field="incidentType" label="Incident Type" />
+                    {renderFieldLabel('incidentType', 'Incident Type')}
                     <select
                       id="incident-type"
                       className="select"
@@ -768,7 +768,7 @@ export default function NewIncidentPage() {
                   </div>
 
                   <div className="form-group">
-                    <FieldLabel field="vehicleType" label="Vehicle Type" />
+                    {renderFieldLabel('vehicleType', 'Vehicle Type')}
                     <select
                       id="vehicle-type"
                       className="select"
@@ -782,7 +782,7 @@ export default function NewIncidentPage() {
                 </div>
 
                 <div className="form-group">
-                  <FieldLabel field="corridor" label="Corridor *" />
+                  {renderFieldLabel('corridor', 'Corridor *')}
                   <select
                     id="corridor"
                     className="select"
@@ -796,7 +796,7 @@ export default function NewIncidentPage() {
                 </div>
 
                 <div className="form-group">
-                  <FieldLabel field="location" label="Location / Junction *" />
+                  {renderFieldLabel('location', 'Location / Junction *')}
                   <input
                     id="location"
                     type="text"
@@ -809,7 +809,7 @@ export default function NewIncidentPage() {
                 </div>
 
                 <div className="form-group">
-                  <FieldLabel field="eventCause" label="Event Cause" />
+                  {renderFieldLabel('eventCause', 'Event Cause')}
                   <input
                     id="event-cause"
                     type="text"
@@ -857,7 +857,7 @@ export default function NewIncidentPage() {
                 style={{ alignSelf: 'flex-start', minWidth: '160px' }}
               >
                 {predicting ? (
-                  <><Loader2 size={14} className="animate-spin" /> Analyzing…</>
+                  <><Loader2 size={14} className="animate-spin" /> Predicting…</>
                 ) : (
                   'Submit Incident'
                 )}

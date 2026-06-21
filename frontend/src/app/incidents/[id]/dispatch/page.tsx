@@ -14,8 +14,6 @@ import { Check, AlertTriangle, Loader2, Users, Car, Truck, Shield } from 'lucide
 interface RecommendationInputs {
   incidentText: string;
   corridor: string;
-  minOfficers: number;
-  minVehicles: number;
 }
 
 /**
@@ -32,12 +30,10 @@ export default function DispatchPage() {
   // Fields the user edits freely.
   const [incidentText, setIncidentText] = useState(`Incident ${incidentId}`);
   const [corridor, setCorridor] = useState('');
-  const [minOfficers, setMinOfficers] = useState(1);
-  const [minVehicles, setMinVehicles] = useState(1);
 
   // Snapshot only updated when "Get Recommendation" is clicked (or on first load).
   const [submitted, setSubmitted] = useState<RecommendationInputs>({
-    incidentText: `Incident ${incidentId}`, corridor: '', minOfficers: 1, minVehicles: 1,
+    incidentText: `Incident ${incidentId}`, corridor: '',
   });
 
   const { data: result, isLoading, error, mutate } = useSWR(
@@ -47,8 +43,6 @@ export default function DispatchPage() {
         incident_id: incidentId,
         incident_text: inputs.incidentText || `Incident ${incidentId}`,
         corridor: inputs.corridor || undefined,
-        min_officers: inputs.minOfficers,
-        min_vehicles: inputs.minVehicles,
         search_top_k: 20,
       });
       const resources = await getStation(res.dispatch.recommended_station);
@@ -62,7 +56,7 @@ export default function DispatchPage() {
   const recommendedStation = result?.dispatch.dispatch.recommended_station;
 
   const handleGetRecommendation = () => {
-    setSubmitted({ incidentText, corridor, minOfficers, minVehicles });
+    setSubmitted({ incidentText, corridor });
   };
 
   const [showConfirm, setShowConfirm] = useState(false);
@@ -77,12 +71,14 @@ export default function DispatchPage() {
     if (!recommendedStation || !recommendedResources) return;
     setIsDispatching(true);
     setDispatchError('');
+    const pkg = result.dispatch.recommended_resources;
+    if (!pkg) return;
     try {
       await allocateResources(recommendedStation, {
-        officers: recommendedResources.officers,
-        vehicles: recommendedResources.vehicles,
-        tow_trucks: recommendedResources.tow_trucks,
-        barricades: recommendedResources.barricades,
+        officers: pkg.officers,
+        vehicles: pkg.vehicles,
+        tow_trucks: pkg.tow_trucks,
+        barricades: pkg.barricades,
       });
       setDispatchSuccess(true);
       setTimeout(() => router.push('/dashboard'), 2000);
@@ -143,7 +139,7 @@ export default function DispatchPage() {
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Recommendation Inputs
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div className="form-group">
                   <label className="form-label">Incident Text</label>
                   <input className="form-input" value={incidentText} onChange={e => setIncidentText(e.target.value)} />
@@ -151,14 +147,6 @@ export default function DispatchPage() {
                 <div className="form-group">
                   <label className="form-label">Corridor</label>
                   <input className="form-input" value={corridor} onChange={e => setCorridor(e.target.value)} placeholder="e.g. Tumkur Road" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Min Officers</label>
-                  <input type="number" min={0} className="form-input" value={minOfficers} onChange={e => setMinOfficers(parseInt(e.target.value, 10) || 0)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Min Vehicles</label>
-                  <input type="number" min={0} className="form-input" value={minVehicles} onChange={e => setMinVehicles(parseInt(e.target.value, 10) || 0)} />
                 </div>
               </div>
               <button className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={handleGetRecommendation}>
@@ -205,20 +193,24 @@ export default function DispatchPage() {
             )}
 
             {/* Resource package */}
-            {recommendedResources && (
+            {result?.dispatch.recommended_resources && (
               <div className="card">
                 <div style={{
                   fontSize: '11px', fontWeight: 700, color: 'var(--muted)',
                   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '16px',
+                  display: 'flex', justifyContent: 'space-between'
                 }}>
-                  Resource Package
+                  <span>Resource Package</span>
+                  <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--accent)' }}>
+                    {result.dispatch.recommended_resources.justification}
+                  </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
                   {[
-                    { icon: <Users size={18} />, count: recommendedResources.officers, label: 'Officers' },
-                    { icon: <Car size={18} />,   count: recommendedResources.vehicles,  label: 'Vehicles' },
-                    { icon: <Truck size={18} />, count: recommendedResources.tow_trucks, label: 'Tow Trucks' },
-                    { icon: <Shield size={18} />,count: recommendedResources.barricades, label: 'Barricades' },
+                    { icon: <Users size={18} />, count: result.dispatch.recommended_resources.officers, label: 'Officers' },
+                    { icon: <Car size={18} />,   count: result.dispatch.recommended_resources.vehicles,  label: 'Vehicles' },
+                    { icon: <Truck size={18} />, count: result.dispatch.recommended_resources.tow_trucks, label: 'Tow Trucks' },
+                    { icon: <Shield size={18} />,count: result.dispatch.recommended_resources.barricades, label: 'Barricades' },
                   ].map(({ icon, count, label }) => (
                     <div key={label} style={{
                       background: 'var(--bg)', borderRadius: '14px', padding: '14px',
@@ -342,8 +334,8 @@ export default function DispatchPage() {
                   <div>
                     <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>Confirm Dispatch</h3>
                     <p style={{ fontSize: '13px', color: 'var(--muted)', lineHeight: 1.6 }}>
-                      Dispatch <strong style={{ color: 'var(--ink)' }}>{recommendedResources.officers} officers</strong> and{' '}
-                      <strong style={{ color: 'var(--ink)' }}>{recommendedResources.vehicles} vehicles</strong> from{' '}
+                      Dispatch <strong style={{ color: 'var(--ink)' }}>{result?.dispatch.recommended_resources?.officers} officers</strong> and{' '}
+                      <strong style={{ color: 'var(--ink)' }}>{result?.dispatch.recommended_resources?.vehicles} vehicles</strong> from{' '}
                       <strong style={{ color: 'var(--ink)' }}>{recommendedStation}</strong> to incident{' '}
                       <strong style={{ color: 'var(--ink)' }}>{incidentId}</strong>?
                       <br /><br />

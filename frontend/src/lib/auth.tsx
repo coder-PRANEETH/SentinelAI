@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const u = await api.auth.me();
           setUser(u);
           setTokenState(storedToken);
-        } catch (err) {
+        } catch (_) {
           localStorage.removeItem('sentinel_token');
           setToken(null);
         }

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FilePlus, Map as MapIcon, Radio,
-  Package, BarChart2, Clock, Plus, Settings, LogOut, User as UserIcon
+  Package, BarChart2, Clock, Plus, Settings, LogOut, User as UserIcon, Calendar
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
@@ -29,6 +29,10 @@ export function Sidebar() {
       <Link href="/incidents/new" className="sidebar-create-btn" title="New Incident">
         <Plus size={18} style={{ flexShrink: 0 }} />
         <span>New Incident</span>
+      </Link>
+      <Link href="/incidents/planned" className="sidebar-create-btn" style={{ marginTop: '8px', background: 'var(--surface)' }} title="Log Planned Event">
+        <Calendar size={18} style={{ flexShrink: 0 }} />
+        <span>Planned Event</span>
       </Link>
 
       {/* Nav icons */}

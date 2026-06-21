@@ -36,17 +36,19 @@ export function RightPanel() {
   const pathname = usePathname();
   const router = useRouter();
 
+  const isDashboard = pathname === '/dashboard';
+
   const { data: incidents, isLoading } = useSWRImmutable(
-    '/incidents/active',
+    isDashboard ? '/incidents/active' : null,
     () => api.incidents.active()
   );
 
   const { data: kpis } = useSWRImmutable(
-    '/analytics/kpis',
+    isDashboard ? '/analytics/kpis' : null,
     () => api.analytics.kpis()
   );
 
-  if (pathname !== '/dashboard') {
+  if (!isDashboard) {
     return null;
   }
 

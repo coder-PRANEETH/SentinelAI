@@ -131,7 +131,7 @@ export default function VoiceReportPage() {
       <ReportProgressSteps currentStep={2} />
       <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 6 }}>Voice Report</h1>
       <p style={{ fontSize: 14, color: "var(--color-text-2)", marginBottom: 24 }}>
-        Speak naturally and we'll extract the details.
+        Speak naturally and we&apos;ll extract the details.
       </p>
 
       {state === "permission_denied" && (
@@ -163,7 +163,7 @@ export default function VoiceReportPage() {
 
         {transcript && (
           <div style={{ fontSize: 13, color: "var(--color-text-2)", fontStyle: "italic", textAlign: "center" }}>
-            Heard: "{transcript}"
+            Heard: &quot;{transcript}&quot;
           </div>
         )}
 

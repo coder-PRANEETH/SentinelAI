@@ -227,6 +227,13 @@ export interface DispatchResponse {
     reasons: string[];
     top_candidates: DispatchCandidate[];
   };
+  recommended_resources?: {
+    officers: number;
+    vehicles: number;
+    tow_trucks: number;
+    barricades: number;
+    justification: string;
+  };
   historical_context: {
     similar_cases: number;
     average_resolution_time: number | null;
@@ -237,3 +244,16 @@ export interface DispatchResponse {
 
 export const getDispatchRecommendation = (payload: DispatchPayload) =>
   request<DispatchResponse>('/dispatch', { method: 'POST', body: JSON.stringify(payload) });
+
+export interface RippleNode {
+  location: string;
+  coordinates: { lat: number; lon: number };
+  time_taken_minutes: number;
+  severity: string;
+}
+
+export const simulateRipple = (location: string, closure_probability: number) =>
+  request<RippleNode[]>('/simulate-ripple', {
+    method: 'POST',
+    body: JSON.stringify({ location, closure_probability })
+  });

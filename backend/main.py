@@ -47,7 +47,7 @@ app = FastAPI(title="SentinelAI Incident Copilot Backend")
 # CORS — allow frontend origins for both HTTP and WebSocket
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

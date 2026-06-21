@@ -54,12 +54,16 @@ export function useVoiceRecorder() {
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Microphone access error:", err);
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setState("permission_denied");
-      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-        setState("no_device");
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          setState("permission_denied");
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+          setState("no_device");
+        } else {
+          setState("error");
+        }
       } else {
         setState("error");
       }

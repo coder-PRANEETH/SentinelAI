@@ -517,6 +517,9 @@ export function LiveOpsMap() {
       map.remove();
       mapRef.current = null;
     };
+    // Initialization effect must only run once on mount to avoid destroying the map instance.
+    // Subsequent updates to incidentMarkers are handled in the dedicated useEffect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -554,7 +557,7 @@ export function LiveOpsMap() {
         return [
           ...current,
           {
-            id: detail.incident_id,
+            id: detail.incident_id as string,
             coordinates: [detail.longitude as number, detail.latitude as number],
           },
         ];

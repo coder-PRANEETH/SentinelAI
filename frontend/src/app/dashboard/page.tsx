@@ -2,7 +2,7 @@
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
-import { Activity, Clock, Users, AlertTriangle, ArrowUpRight, Bell, X, ExternalLink } from 'lucide-react';
+import { Activity, Clock, Users, AlertTriangle, ArrowUpRight, Bell, X, ExternalLink, TrendingUp } from 'lucide-react';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { StatCard } from '@/components/shared/StatCard';
 import { StatusBadge } from '@/components/shared/StatusBadge';
@@ -11,6 +11,7 @@ import { LoadingState, EmptyState } from '@/components/shared/LoadingState';
 import { StatisticsPanel } from '@/components/dashboard/StatisticsPanel';
 import { useKPIs } from '@/hooks/useKPIs';
 import { useStations } from '@/hooks/useStations';
+import useSWR from 'swr';
 import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 import { listStationReadiness } from '@/api/finalEndpointsApi';
@@ -101,7 +102,7 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
 // ── Active incidents hook with new-incident detection ──────────────────────
 
 function useActiveIncidentsWithNotifications() {
-  const result = useSWRImmutable('/incidents/active', () => api.incidents.active());
+  const result = useSWR('/incidents/active', () => api.incidents.active(), { refreshInterval: 5000 });
 
   return {
     ...result,
@@ -141,6 +142,10 @@ export default function DashboardPage() {
     '/analytics/trends',
     () => api.analytics.trends(7)
   );
+  
+  const { data: riskZonesData, isLoading: riskZonesLoading } = useSWRImmutable(
+    '/risk-zones', () => api.risk.zones()
+  );
 
   const trendData = (trendDataRaw || []).map(d => ({
     date: d.date,
@@ -159,6 +164,17 @@ export default function DashboardPage() {
 
   const isDev = process.env.NODE_ENV === 'development';
   const [testToast, setTestToast] = useState<Incident | null>(null);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isKpisLoading = !mounted || kpisLoading;
+  const isTrendsLoading = !mounted || trendsLoading;
+  const isReadinessLoading = !mounted || readinessLoading;
+  const isRiskZonesLoading = !mounted || riskZonesLoading;
+  const topRiskZones = (riskZonesData ?? []).slice(0, 3);
 
   return (
     <div className="flex flex-col h-full">
@@ -292,7 +308,7 @@ export default function DashboardPage() {
               percentage={activeChange}
               usedDots={kpis?.active_incidents ? Math.min(10, Math.ceil(kpis.active_incidents / 2)) : 0}
               totalDots={10}
-              isLoading={kpisLoading || trendsLoading}
+              isLoading={isKpisLoading || isTrendsLoading}
             />
             <StatCard
               icon={Clock}
@@ -303,19 +319,63 @@ export default function DashboardPage() {
               usedDots={8}
               totalDots={10}
               variant="accent"
-              isLoading={kpisLoading}
+              isLoading={isKpisLoading}
             />
           </div>
 
           {/* ── ROW 3: Statistics chart ── */}
-          <div className="col-span-7">
+          <div className="col-span-4">
             <div className="card">
-              {trendsLoading ? <LoadingState message="Loading trend data…" /> : <StatisticsPanel data={trendData} />}
+              {isTrendsLoading ? <LoadingState message="Loading trend data…" /> : <StatisticsPanel data={trendData} />}
+            </div>
+          </div>
+
+          {/* Emerging Hotspots */}
+          <div className="col-span-4">
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div className="flex items-center justify-between p-5 border-b border-border">
+                <h3 className="text-sm font-bold text-text-1" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <TrendingUp size={16} color="var(--err)" /> Emerging Hotspots
+                </h3>
+              </div>
+              {isRiskZonesLoading ? (
+                <LoadingState message="Loading risk zones…" size="sm" />
+              ) : (
+                <div>
+                  {topRiskZones.map(zone => (
+                    <div
+                      key={zone.corridor}
+                      className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised transition-colors"
+                      onClick={() => router.push('/stations')}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-sm font-semibold text-text-1">{zone.corridor}</span>
+                        {zone.rate_ratio > 1.5 && (
+                          <span style={{
+                            padding: '2px 8px', borderRadius: 9999,
+                            background: '#FEE2E2', color: '#DC2626',
+                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase'
+                          }}>
+                            Emerging Risk Zone
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-text-2">
+                          {zone.rate_ratio > 1 ? '+' : ''}{Math.round((zone.rate_ratio - 1) * 100)}% month-over-month
+                        </span>
+                        <span className="text-[11px] font-mono text-text-2">{zone.incident_count_30d} incidents</span>
+                      </div>
+                    </div>
+                  ))}
+                  {topRiskZones.length === 0 && <EmptyState message="No emerging risks detected" />}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Station Readiness */}
-          <div className="col-span-5">
+          <div className="col-span-4">
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <h3 className="text-sm font-bold text-text-1">Station Readiness</h3>
@@ -323,7 +383,7 @@ export default function DashboardPage() {
                   All <ArrowUpRight size={14} />
                 </Link>
               </div>
-              {readinessLoading ? (
+              {isReadinessLoading ? (
                 <LoadingState message="Loading…" size="sm" />
               ) : (
                 <div>
