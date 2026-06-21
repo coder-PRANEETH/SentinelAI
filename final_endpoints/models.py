@@ -66,7 +66,7 @@ BACKEND_API_URL = os.getenv(
 
 app = Flask(__name__)
 if CORS is not None:
-    CORS(app)
+    CORS(app, origins=os.getenv("CORS_ALLOWED_ORIGINS", "*").split(","))
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1441,6 +1441,6 @@ def simulate_ripple():
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
-        port=5000,
-        debug=True
+        port=int(os.environ.get("PORT", 5000)),
+        debug=False
     )
