@@ -63,8 +63,8 @@ Create two new **Cloudflare Pages** applications connected to the repository.
 
 **App 1: Sentinel Admin (`frontend/`)**
 - **Framework:** Next.js
-- **Build Command:** `next build`
-- **Build Output Directory:** `out`
+- **Build Command:** `npx @cloudflare/next-on-pages`
+- **Build Output Directory:** `.vercel/output/static`
 - **Environment Variables:**
   - `NEXT_PUBLIC_SUPABASE_URL`: `<Supabase Project URL>`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: `<Supabase Anon Key>`
