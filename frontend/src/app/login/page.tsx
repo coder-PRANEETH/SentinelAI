@@ -133,7 +133,7 @@ export default function LoginPage() {
             onMouseEnter={(e) => e.currentTarget.style.background = '#F5F5F3'}
             onMouseLeave={(e) => e.currentTarget.style.background = '#FFFFFF'}
           >
-            {isLoading ? <Loader2 size={16} className="animate-spin" /> : 'Continue as Demo'}
+            {isLoading ? <Loader2 size={16} className="animate-spin" /> : 'Demo Login'}
           </button>
         </div>
 
