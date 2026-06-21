@@ -17,55 +17,63 @@ import { Station, RiskZone, Incident } from '@/lib/api';
  * - Heatmap (risk zones, muted amber/red)
  */
 
-function createStationMarker(readinessScore: number): HTMLElement {
+function createStationMarker(readinessScore: number, stationName: string): HTMLElement {
+  // Use same thresholds as Stations & Resources page
   const color =
-    readinessScore > 70 ? '#CDFF50' : // Neon Lime
-      readinessScore >= 40 ? '#FF9900' : // Neon Orange
-        '#FF3366';                         // Neon Pink/Red
+    readinessScore >= 70 ? '#16A34A' : // Green (High)
+      readinessScore >= 40 ? '#EA580C' : // Orange (Medium)
+        '#DC2626';                       // Red (Low)
 
   const wrapper = document.createElement('div');
   // NOTE: Do NOT add `transition` here — MapLibre uses CSS transform to position
   // markers, and any transition on transform causes markers to visually drift on pan.
   wrapper.style.cssText = `
     position: relative;
-    width: 36px;
-    height: 36px;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     will-change: transform;
+    gap: 4px;
+    z-index: 5;
   `;
 
-  // Soft glow
-  const glow = document.createElement('div');
-  glow.style.cssText = `
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: ${color};
-    opacity: 0.25;
-    filter: blur(4px);
-    pointer-events: none;
-  `;
-
-  // Sharp ring
-  const pin = document.createElement('div');
-  pin.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="10" cy="10" r="8" fill="#111111" stroke="${color}" stroke-width="2.5" />
-      <circle cx="10" cy="10" r="3" fill="${color}" />
+  // Distinct Shield/Badge shape for station
+  const badge = document.createElement('div');
+  badge.innerHTML = `
+    <svg width="28" height="32" viewBox="0 0 24 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L3 6V13C3 18.5 7.05 23.74 12 25C16.95 23.74 21 18.5 21 13V6L12 2Z" fill="#111111" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M12 8V18M8 13H16" stroke="${color}" stroke-width="2" stroke-linecap="round"/>
     </svg>
   `;
-  pin.style.cssText = `
+  badge.style.cssText = `
     position: relative;
     z-index: 1;
     line-height: 0;
     pointer-events: none;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));
   `;
 
-  wrapper.appendChild(glow);
-  wrapper.appendChild(pin);
+  // Label under the badge
+  const label = document.createElement('div');
+  label.textContent = stationName;
+  label.style.cssText = `
+    background: rgba(17, 17, 17, 0.85);
+    color: #FFFFFF;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+    pointer-events: none;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    letter-spacing: 0.02em;
+  `;
+
+  wrapper.appendChild(badge);
+  wrapper.appendChild(label);
   return wrapper;
 }
 
@@ -479,7 +487,7 @@ export function BengaluruMap({
 
       if (!station.latitude || !station.longitude) return;
       const score = Number(station.readiness_score);
-      const el = createStationMarker(score);
+      const el = createStationMarker(score, station.station_name);
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
         .setLngLat([station.longitude!, station.latitude!])
@@ -496,8 +504,15 @@ export function BengaluruMap({
         if (left + 150 > window.innerWidth) left = window.innerWidth - 150 - 16;
         if (left - 150 < 0) left = 150 + 16;
 
+        const top = rect.top + point.y;
+        if (top < 150) {
+          hoverCardRef.current.style.transform = 'translate(-50%, 16px)';
+        } else {
+          hoverCardRef.current.style.transform = 'translate(-50%, calc(-100% - 16px))';
+        }
+
         hoverCardRef.current.style.left = `${left}px`;
-        hoverCardRef.current.style.top = `${rect.top + point.y}px`;
+        hoverCardRef.current.style.top = `${top}px`;
         hoverCardRef.current.style.opacity = '1';
       });
 
@@ -548,8 +563,15 @@ export function BengaluruMap({
         if (left + 220 > window.innerWidth) left = window.innerWidth - 220 - 16;
         if (left - 220 < 0) left = 220 + 16;
 
+        const top = rect.top + point.y;
+        if (top < 150) {
+          hoverCardRef.current.style.transform = 'translate(-50%, 16px)';
+        } else {
+          hoverCardRef.current.style.transform = 'translate(-50%, calc(-100% - 16px))';
+        }
+
         hoverCardRef.current.style.left = `${left}px`;
-        hoverCardRef.current.style.top = `${rect.top + point.y}px`;
+        hoverCardRef.current.style.top = `${top}px`;
         hoverCardRef.current.style.opacity = '1';
       });
 
@@ -630,20 +652,36 @@ export function BengaluruMap({
             Map Layers
           </span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { key: 'stations', label: 'Station Markers' },
-              { key: 'incidents', label: 'Incident Pins' },
-            ].map(({ key, label }) => (
-              <label key={key} className="map-checkbox-row" style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0 }}>
-                <input
-                  type="checkbox"
-                  checked={layers[key as keyof typeof layers]}
-                  onChange={e => setLayers(l => ({ ...l, [key]: e.target.checked }))}
-                  className="map-checkbox"
-                />
-                {label}
-              </label>
-            ))}
+            <label className="map-checkbox-row" style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={layers.stations}
+                onChange={e => setLayers(l => ({ ...l, stations: e.target.checked }))}
+                className="map-checkbox"
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="14" height="16" viewBox="0 0 24 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2L3 6V13C3 18.5 7.05 23.74 12 25C16.95 23.74 21 18.5 21 13V6L12 2Z" fill="#111111" stroke="#16A34A" strokeWidth="3" strokeLinejoin="round"/>
+                  <path d="M12 8V18M8 13H16" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round"/>
+                </svg>
+                Station Markers
+              </div>
+            </label>
+            <label className="map-checkbox-row" style={{ color: '#FFFFFF', fontSize: '13px', fontWeight: 500, margin: 0, padding: 0, display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={layers.incidents}
+                onChange={e => setLayers(l => ({ ...l, incidents: e.target.checked }))}
+                className="map-checkbox"
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="10" cy="10" r="8" fill="#111111" stroke="#E35D5D" strokeWidth="3" />
+                  <circle cx="10" cy="10" r="3" fill="#E35D5D" />
+                </svg>
+                Incident Pins
+              </div>
+            </label>
           </div>
         </div>
       )}

@@ -284,6 +284,7 @@ export default function DashboardPage() {
           <div className="col-span-4 row-span-2" style={{ position: 'relative', minHeight: '400px' }}>
             <div className="card" style={{ padding: 0, position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <BengaluruMap
+                stations={stations}
                 incidents={activeIncidents || []}
                 height="100%"
                 highlightedIncidentId={highlightedIncidentId}
