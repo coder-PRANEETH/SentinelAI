@@ -12,7 +12,7 @@ import { LoadingState, EmptyState } from '@/components/shared/LoadingState';
 import { StatisticsPanel } from '@/components/dashboard/StatisticsPanel';
 import { useKPIs } from '@/hooks/useKPIs';
 import { useStations } from '@/hooks/useStations';
-import useSWR from 'swr';
+import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 import { listStationReadiness } from '@/api/finalEndpointsApi';
 import Link from 'next/link';
@@ -109,7 +109,7 @@ function useActiveIncidentsWithNotifications() {
   const prevIdsRef = useRef<Set<string> | null>(null);
   const [newIncident, setNewIncident] = useState<Incident | null>(null);
 
-  const result = useSWR('/incidents/active', () => api.incidents.active(), { refreshInterval: 15000 });
+  const result = useSWRImmutable('/incidents/active', () => api.incidents.active());
 
   useEffect(() => {
     const incidents = result.data;
@@ -152,15 +152,18 @@ export default function DashboardPage() {
   const [tab, setTab] = useState('Overview');
   const { kpis, isLoading: kpisLoading } = useKPIs(30000);
   const { stations } = useStations(30000);
-  const { data: readinessData, isLoading: readinessLoading } = useSWR(
-    '/station-readiness', () => listStationReadiness(), { refreshInterval: 30000 }
+  const { data: readinessData, isLoading: readinessLoading } = useSWRImmutable(
+    '/station-readiness', () => listStationReadiness()
   );
   const { data: activeIncidents, newIncident, clearNewIncident } = useActiveIncidentsWithNotifications();
   const [highlightedIncidentId, setHighlightedIncidentId] = useState<string | null>(null);
 
   const top5 = (readinessData ?? []).slice(0, 5);
 
-  const { data: trendDataRaw, isLoading: trendsLoading } = useSWR('/analytics/trends', () => api.analytics.trends(7));
+  const { data: trendDataRaw, isLoading: trendsLoading } = useSWRImmutable(
+    '/analytics/trends',
+    () => api.analytics.trends(7)
+  );
 
   const trendData = (trendDataRaw || []).map(d => ({
     date: d.date,

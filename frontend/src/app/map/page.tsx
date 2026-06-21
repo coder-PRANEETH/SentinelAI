@@ -1,6 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
-import useSWR from 'swr';
+import useSWRImmutable from 'swr/immutable';
 import { api } from '@/lib/api';
 import { useStations } from '@/hooks/useStations';
 import { PageHeading } from '@/components/layout/PageHeading';
@@ -13,7 +13,7 @@ const BengaluruMap = dynamic(
 );
 
 function useActiveIncidents() {
-  return useSWR('/incidents/active', () => api.incidents.active(), { refreshInterval: 15000 });
+  return useSWRImmutable('/incidents/active', () => api.incidents.active());
 }
 
 export default function MapPage() {

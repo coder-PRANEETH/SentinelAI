@@ -1,11 +1,12 @@
 """
 models.py
-SentinelAI – Unified Flask API
+SentinelAI  Unified Flask API
 Combines:
   - CatBoost prediction models (risk / road closure / resolution time)
   - Resource Intelligence (SQLite-based station inventory)
   - Historical Incident Search (FAISS + Sentence Transformers)
   - Station Load Balancer & Dispatch Pipeline
+  - Corridor Ripple Simulator (NetworkX + BFS Propagation)
 """
 
 import os
@@ -13,8 +14,12 @@ import sys
 import json
 import sqlite3
 import pickle
+import uuid
 import traceback
 from typing import Optional, List, Dict, Tuple
+from datetime import datetime, timezone
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from flask import Flask, request, jsonify
 try:
@@ -24,6 +29,8 @@ except ImportError:
 from catboost import CatBoostClassifier, CatBoostRegressor
 import pandas as pd
 import numpy as np
+import networkx as nx
+import psycopg2
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATH RESOLUTION
@@ -43,6 +50,14 @@ DATA_FILE = os.path.join(
 )
 DB_FILE = os.path.join(RESOURCE_MODULE_DIR, "resources.db")
 FAISS_INDEX_DIR = os.path.join(RESOURCE_MODULE_DIR, "faiss_index")
+BACKEND_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://sentinel:sentinel@localhost:5432/sentinelai",
+)
+BACKEND_API_URL = os.getenv(
+    "BACKEND_API_URL",
+    os.getenv("NEXT_PUBLIC_BACKEND_API_URL", "http://127.0.0.1:5001"),
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FLASK APP
@@ -203,6 +218,150 @@ STATIONS: List[str] = [
 
 def _get_db_connection(db_file=DB_FILE) -> sqlite3.Connection:
     return sqlite3.connect(db_file, check_same_thread=False)
+
+
+def _backend_generate_incident_id(cur) -> str:
+    year = datetime.now(timezone.utc).year
+    try:
+        cur.execute("SELECT nextval('incident_id_seq')")
+        seq = int(cur.fetchone()[0])
+        return f"INC-{year}-{seq:06d}"
+    except Exception:
+        rand = uuid.uuid4().int % 1_000_000
+        return f"INC-{year}-{rand:06d}"
+
+
+def _store_via_backend_api(payload: dict, response: dict) -> tuple[str, str]:
+    api_payload = dict(payload)
+    api_payload["prediction"] = response.get("predictions", {})
+    api_payload["recommended_resources"] = response.get("recommended_resources")
+    api_payload["historical_context"] = response.get("historical_context")
+
+    req = Request(
+        f"{BACKEND_API_URL.rstrip('/')}/incidents",
+        data=json.dumps(api_payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req, timeout=5) as res:
+        body = json.loads(res.read().decode("utf-8"))
+        incident_id = body.get("incident_id") or api_payload.get("incident_id")
+        prediction_id = body.get("prediction_id")
+        if not incident_id or not prediction_id:
+            raise RuntimeError("Backend incident save response missing ids")
+        return incident_id, prediction_id
+
+
+def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
+    try:
+        return _store_via_backend_api(payload, response)
+    except Exception:
+        traceback.print_exc()
+
+    incident_id = None
+    prediction_id = str(uuid.uuid4())
+    predictions = response.get("predictions", {})
+    created_at = datetime.now(timezone.utc)
+    request_json = json.dumps(payload, sort_keys=True)
+
+    conn = None
+    try:
+        conn = psycopg2.connect(BACKEND_DATABASE_URL, connect_timeout=3)
+        conn.autocommit = False
+        cur = conn.cursor()
+        incident_id = _backend_generate_incident_id(cur)
+
+        incident_type = payload.get("event_type_grouped", "unknown")
+        event_cause = payload.get("event_cause", "unknown")
+        vehicle_type = payload.get("veh_type_grouped", "unknown")
+        corridor = payload.get("corridor", "unknown")
+        location = payload.get("location") or corridor
+        latitude = payload.get("latitude")
+        longitude = payload.get("longitude")
+
+        cur.execute(
+            """
+            INSERT INTO incidents (
+                incident_id,
+                incident_type,
+                event_cause,
+                vehicle_type,
+                location,
+                corridor,
+                latitude,
+                longitude,
+                status,
+                reported_at,
+                raw_transcript,
+                is_cancelled,
+                created_at,
+                updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                incident_id,
+                incident_type,
+                event_cause,
+                vehicle_type,
+                location,
+                corridor,
+                latitude,
+                longitude,
+                "REPORTED",
+                created_at,
+                request_json,
+                False,
+                created_at,
+                created_at,
+            ),
+        )
+
+        predicted_priority = predictions.get("priority")
+        road_closure_required = predictions.get("road_closure_required", False)
+        road_closure_probability = predictions.get("road_closure_probability")
+        expected_resolution_minutes = predictions.get("expected_resolution_minutes")
+
+        cur.execute(
+            """
+            INSERT INTO predictions (
+                prediction_id,
+                incident_id,
+                predicted_priority,
+                priority_confidence,
+                predicted_resolution_minutes,
+                road_closure_probability,
+                road_closure_recommendation,
+                model_version,
+                created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                prediction_id,
+                incident_id,
+                predicted_priority,
+                round(float(predictions.get("priority_confidence", 0.0)) / 100.0, 4)
+                if predictions.get("priority_confidence") is not None
+                else None,
+                expected_resolution_minutes,
+                round(float(road_closure_probability) / 100.0, 4)
+                if road_closure_probability is not None
+                else None,
+                "Yes" if road_closure_required else "No",
+                "final_endpoints-1.0",
+                created_at,
+            ),
+        )
+
+        conn.commit()
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        raise
+    finally:
+        if conn is not None:
+            conn.close()
+
+    return incident_id, prediction_id
 
 
 def _init_db(db_file=DB_FILE, force=False):
@@ -864,6 +1023,104 @@ def dispatch(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# SECTION 10 — BENGALURU TRAFFIC NETWORK GRAPH (CORRIDOR RIPPLE SIMULATOR)
+# ═════════════════════════════════════════════════════════════════════════════
+
+BENGALURU_NODES = {
+    "Tumkur Road": {"lat": 13.0380, "lon": 77.5120},
+    "Peenya Junction": {"lat": 13.0285, "lon": 77.5186},
+    "Yeshwanthpur": {"lat": 13.0206, "lon": 77.5560},
+    "Hebbal": {"lat": 13.0354, "lon": 77.5978},
+    "Outer Ring Road": {"lat": 12.9716, "lon": 77.6410},
+    "Marathahalli": {"lat": 12.9562, "lon": 77.7011},
+    "Silk Board": {"lat": 12.9176, "lon": 77.6244},
+    "Electronic City": {"lat": 12.8452, "lon": 77.6602},
+    "KR Puram": {"lat": 13.0110, "lon": 77.7040},
+    "Mysore Road": {"lat": 12.9461, "lon": 77.5255},
+    "Majestic": {"lat": 12.9766, "lon": 77.5712}
+}
+
+BENGALURU_EDGES = [
+    ("Tumkur Road", "Peenya Junction"),
+    ("Peenya Junction", "Yeshwanthpur"),
+    ("Yeshwanthpur", "Hebbal"),
+    ("Yeshwanthpur", "Majestic"),
+    ("Hebbal", "KR Puram"),
+    ("KR Puram", "Marathahalli"),
+    ("Marathahalli", "Outer Ring Road"),
+    ("Outer Ring Road", "Silk Board"),
+    ("Silk Board", "Electronic City"),
+    ("Majestic", "Mysore Road"),
+    ("Mysore Road", "Silk Board"),
+    ("Majestic", "Hebbal")
+]
+
+# Build the NetworkX graph during application startup
+traffic_graph = nx.Graph()
+for node, coords in BENGALURU_NODES.items():
+    traffic_graph.add_node(node, lat=coords["lat"], lon=coords["lon"])
+traffic_graph.add_edges_from(BENGALURU_EDGES)
+
+
+def run_ripple_bfs(start_node: str, max_depth: int) -> list:
+    """
+    Executes BFS traversal to simulate traffic ripple propagation up to max_depth.
+    Decays severity and escalates time taken by depth level.
+    """
+    matched_start = None
+    for node in traffic_graph.nodes:
+        if node.lower() == start_node.lower():
+            matched_start = node
+            break
+
+    if not matched_start:
+        # Fallback to the first node if not matched precisely to avoid failing silently
+        matched_start = list(traffic_graph.nodes)[0]
+
+    visited = {matched_start}
+    queue = [(matched_start, 0)]
+    results = []
+
+    while queue:
+        curr, dist = queue.pop(0)
+        if dist >= max_depth:
+            continue
+
+        for neighbor in traffic_graph.neighbors(curr):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                next_dist = dist + 1
+
+                # Calculate depth-based attributes
+                if next_dist == 1:
+                    severity = "high"
+                    time_taken = 15
+                elif next_dist == 2:
+                    severity = "medium"
+                    time_taken = 30
+                elif next_dist == 3:
+                    severity = "low"
+                    time_taken = 45
+                else:  # next_dist == 4 or greater
+                    severity = "low"
+                    time_taken = 60
+
+                node_data = traffic_graph.nodes[neighbor]
+                results.append({
+                    "location": neighbor,
+                    "coordinates": {
+                        "lat": node_data["lat"],
+                        "lon": node_data["lon"]
+                    },
+                    "time_taken_minutes": time_taken,
+                    "severity": severity
+                })
+
+                queue.append((neighbor, next_dist))
+    return results
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — REST ENDPOINTS
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -917,6 +1174,7 @@ def predict():
         # ── Response ─────────────────────────────────────────────────────
         response = {
             "incident": {
+                "incident_id": None,
                 "event_type":  payload.get("event_type_grouped", "unknown"),
                 "event_cause": payload.get("event_cause", "unknown"),
                 "corridor":    payload.get("corridor", "unknown"),
@@ -929,6 +1187,14 @@ def predict():
                 "expected_resolution_minutes": round(expected_minutes, 2),
             }
         }
+        try:
+            incident_id, prediction_id = _store_received_incident(payload, response)
+            response["incident"]["incident_id"] = incident_id
+            response["incident_id"] = incident_id
+            response["prediction_id"] = prediction_id
+        except Exception:
+            traceback.print_exc()
+        print(response)
         return jsonify(response)
 
     except Exception as e:
@@ -1074,6 +1340,44 @@ def station_readiness():
             results.append(compute_readiness_score(s, tracker, loads))
         results.sort(key=lambda x: x["readiness_score"], reverse=True)
         return jsonify(results)
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Corridor Ripple Simulator Endpoint ───────────────────────────────────────
+
+@app.route("/simulate-ripple", methods=["POST"])
+def simulate_ripple():
+    """
+    POST /simulate-ripple
+    Body (JSON): {
+        "location": "Tumkur Road",
+        "priority": "high",
+        "closure_probability": 0.82
+    }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        location = data.get("location", "")
+        closure_prob = float(data.get("closure_probability", 0.0))
+
+        if not location:
+            return _bad_request("'location' field is required.")
+
+        # Determine depth from closure probability thresholds
+        if closure_prob > 0.8:
+            depth = 4
+        elif closure_prob > 0.6:
+            depth = 3
+        elif closure_prob > 0.4:
+            depth = 2
+        else:
+            depth = 1
+
+        ripple_results = run_ripple_bfs(location, depth)
+        return jsonify(ripple_results)
 
     except Exception as e:
         traceback.print_exc()

@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangle, Clock, CheckCircle, Radio, ArrowUpRight, Activity } from 'lucide-react';
 import Link from 'next/link';
-import useSWR from 'swr';
+import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
@@ -36,16 +36,14 @@ export function RightPanel() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const { data: incidents, isLoading } = useSWR(
+  const { data: incidents, isLoading } = useSWRImmutable(
     '/incidents/active',
-    () => api.incidents.active(),
-    { refreshInterval: 15000 }
+    () => api.incidents.active()
   );
 
-  const { data: kpis } = useSWR(
+  const { data: kpis } = useSWRImmutable(
     '/analytics/kpis',
-    () => api.analytics.kpis(),
-    { refreshInterval: 30000 }
+    () => api.analytics.kpis()
   );
 
   if (pathname !== '/dashboard') {
