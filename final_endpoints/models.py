@@ -14,9 +14,12 @@ import sys
 import json
 import psycopg2
 import pickle
+import logging
 import uuid
 import re
 import traceback
+import time
+from functools import lru_cache
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
@@ -67,6 +70,8 @@ BACKEND_API_URL = os.getenv(
 app = Flask(__name__)
 if CORS is not None:
     CORS(app, origins=[r"^https://.*\.pages\.dev$", "http://localhost:3000", "http://localhost:3001","https://sentinel-ai-ashen-seven.vercel.app",])
+
+logger = logging.getLogger(__name__)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -743,11 +748,19 @@ RESOURCE_WEIGHTS = {"officers": 0.5, "vehicles": 0.3, "tow_trucks": 0.2}
 
 
 def _load_dataset(data_file: str) -> pd.DataFrame:
+    started_at = time.perf_counter()
     df = pd.read_csv(data_file, encoding="latin1")
     df["start_dt"] = pd.to_datetime(df["start_datetime"], utc=True, errors="coerce")
+    logger.info(
+        "[final_endpoints] dataset loaded file=%s rows=%s duration=%.3fs",
+        data_file,
+        len(df),
+        time.perf_counter() - started_at,
+    )
     return df
 
 
+@lru_cache(maxsize=1)
 def compute_station_loads(data_file: str) -> Dict[str, dict]:
     """
     Compute per-station load metrics from the historical dataset.
@@ -756,7 +769,8 @@ def compute_station_loads(data_file: str) -> Dict[str, dict]:
     Returns dict keyed by station with:
         active_incidents, high_priority_incidents, avg_resolution_mins
     """
-    df = _load_dataset(data_file)
+    started_at = time.perf_counter()
+    df = _load_dataset(data_file).copy()
 
     # Proxy: 'active' status or open (no resolved_datetime)
     active_mask = (df["status"] == "active") | (df["resolved_datetime"].isna() & (df["status"] != "closed"))
@@ -779,6 +793,11 @@ def compute_station_loads(data_file: str) -> Dict[str, dict]:
             "high_priority_incidents": int(len(high_priority)),
             "avg_resolution_mins":     round(float(avg_res), 1) if pd.notna(avg_res) else 60.0,
         }
+    logger.info(
+        "[final_endpoints] station loads computed stations=%s duration=%.3fs",
+        len(loads),
+        time.perf_counter() - started_at,
+    )
     return loads
 
 
@@ -837,8 +856,13 @@ def compute_readiness_score(
 class LoadBalancer:
     def __init__(self, data_file: str = DATA_FILE):
         self._tracker = tracker  # use module-level tracker
+        started_at = time.perf_counter()
         print("[LoadBalancer] Computing station loads from historical data …")
         self.loads = compute_station_loads(data_file)
+        logger.info(
+            "[final_endpoints] load balancer initialized duration=%.3fs",
+            time.perf_counter() - started_at,
+        )
 
     def _candidate_stations(self, corridor: Optional[str] = None) -> List[str]:
         """
@@ -848,7 +872,7 @@ class LoadBalancer:
         if not corridor:
             return [s for s in STATIONS if s != "No Police Station"]
 
-        df = pd.read_csv(DATA_FILE, encoding="latin1")
+        df = _load_dataset(DATA_FILE)
         corridor_stations = (
             df[df["corridor"].str.lower() == corridor.lower()]["police_station"]
             .dropna()
@@ -1047,9 +1071,15 @@ def _load_historical():
     """Lazy-load FAISS index and sentence-transformer model on first use."""
     global _hist_df, _hist_index, _hist_model
     if _hist_df is None:
+        started_at = time.perf_counter()
         from sentence_transformers import SentenceTransformer
         _hist_df, _, _hist_index = run_embedding_pipeline(out_dir=FAISS_INDEX_DIR)
         _hist_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+        logger.info(
+            "[final_endpoints] historical artifacts loaded rows=%s duration=%.3fs",
+            len(_hist_df),
+            time.perf_counter() - started_at,
+        )
 
 
 def search_similar_incidents(
@@ -1067,12 +1097,18 @@ def search_similar_incidents(
     dict with keys: similar_cases, average_resolution_time, historical_priority,
                     most_common_outcome, total_similar
     """
+    started_at = time.perf_counter()
     _load_historical()
+    load_elapsed = time.perf_counter() - started_at
 
     # Embed query (L2-normalised to match inner-product index)
+    embed_started_at = time.perf_counter()
     q_vec = _hist_model.encode([query], normalize_embeddings=True).astype("float32")
+    embed_elapsed = time.perf_counter() - embed_started_at
 
+    search_started_at = time.perf_counter()
     scores, indices = _hist_index.search(q_vec, top_k)
+    search_elapsed = time.perf_counter() - search_started_at
     matched = _hist_df.iloc[indices[0]].copy()
     matched["similarity_score"] = scores[0]
 
@@ -1123,6 +1159,14 @@ def search_similar_incidents(
         "historical_priority":     most_common_priority,
         "most_common_outcome":     most_common_outcome,
     }
+    logger.info(
+        "[final_endpoints] historical-search stages load=%.3fs embed=%.3fs search=%.3fs total=%.3fs top_k=%s",
+        load_elapsed,
+        embed_elapsed,
+        search_elapsed,
+        time.perf_counter() - started_at,
+        top_k,
+    )
     return result
 
 
@@ -1155,10 +1199,16 @@ def dispatch(
 
     Returns a unified response dict.
     """
+    started_at = time.perf_counter()
     lb = _get_balancer()
 
     # Step 1 – Historical context
+    history_started_at = time.perf_counter()
     history = search_similar_incidents(incident_text, top_k=search_top_k)
+    logger.info(
+        "[final_endpoints] dispatch history_search duration=%.3fs",
+        time.perf_counter() - history_started_at,
+    )
     
     # Step 2 - Dynamic Resource Recommendation Heuristic
     # The Astram dataset does not track exact historical officer/vehicle counts per incident.
@@ -1196,13 +1246,22 @@ def dispatch(
         reasoning.append("Standard baseline response package")
 
     # Step 3 – Station selection using the dynamically computed minimums
+    select_started_at = time.perf_counter()
     selection = lb.select_station(
         incident_location=incident_text,
         corridor=corridor,
         min_officers=rec_officers,
         min_vehicles=rec_vehicles,
     )
+    logger.info(
+        "[final_endpoints] dispatch select_station duration=%.3fs",
+        time.perf_counter() - select_started_at,
+    )
 
+    logger.info(
+        "[final_endpoints] dispatch total duration=%.3fs",
+        time.perf_counter() - started_at,
+    )
     return {
         "dispatch": {
             "incident":             incident_text,
@@ -1340,6 +1399,19 @@ def _bad_request(msg: str, code: int = 400):
     return jsonify({"error": msg}), code
 
 
+def _log_endpoint_response(endpoint_name: str, started_at: float, response):
+    flask_response = app.make_response(response)
+    logger.info(
+        "[final_endpoints:%s] <- %s %s status=%s duration=%.3fs",
+        endpoint_name,
+        request.method,
+        request.path,
+        flask_response.status_code,
+        time.perf_counter() - started_at,
+    )
+    return flask_response
+
+
 # ── Health Check ─────────────────────────────────────────────────────────────
 
 @app.route("/health")
@@ -1472,20 +1544,36 @@ def historical_search():
     POST /historical-search
     Body (JSON): { "query": "Vehicle Breakdown Tumkur Road", "top_k": 20 }
     """
+    started_at = time.perf_counter()
+    body_size = len(request.get_data(cache=True) or b"")
+    logger.info(
+        "[final_endpoints:historical-search] -> %s %s body_bytes=%s",
+        request.method,
+        request.path,
+        body_size,
+    )
     try:
         data = request.get_json()
         query = data.get("query", "")
         top_k = _int_param(data.get("top_k"), default=20)
 
         if not query:
-            return _bad_request("'query' field is required.")
+            return _log_endpoint_response(
+                "historical-search",
+                started_at,
+                _bad_request("'query' field is required."),
+            )
 
         result = search_similar_incidents(query, top_k=top_k)
-        return jsonify(result)
+        return _log_endpoint_response("historical-search", started_at, jsonify(result))
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return _log_endpoint_response(
+            "historical-search",
+            started_at,
+            (jsonify({"success": False, "error": str(e)}), 500),
+        )
 
 
 # ── Dispatch Endpoint ────────────────────────────────────────────────────────
@@ -1502,12 +1590,24 @@ def dispatch_endpoint():
         "search_top_k": 20                 (optional, default 20)
     }
     """
+    started_at = time.perf_counter()
+    body_size = len(request.get_data(cache=True) or b"")
+    logger.info(
+        "[final_endpoints:dispatch] -> %s %s body_bytes=%s",
+        request.method,
+        request.path,
+        body_size,
+    )
     try:
         data = request.get_json(silent=True) or {}
         incident_text = data.get("incident_text", "")
 
         if not incident_text:
-            return _bad_request("'incident_text' field is required.")
+            return _log_endpoint_response(
+                "dispatch",
+                started_at,
+                _bad_request("'incident_text' field is required."),
+            )
 
         result = dispatch(
             incident_text=incident_text,
@@ -1522,11 +1622,15 @@ def dispatch_endpoint():
             updated = _mark_backend_incident_in_progress(incident_id)
             result["dispatch"]["incident_id"] = incident_id
             result["dispatch"]["incident_status_updated"] = updated
-        return jsonify(result)
+        return _log_endpoint_response("dispatch", started_at, jsonify(result))
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return _log_endpoint_response(
+            "dispatch",
+            started_at,
+            (jsonify({"success": False, "error": str(e)}), 500),
+        )
 
 
 # ── Station Readiness Endpoint ───────────────────────────────────────────────
@@ -1542,17 +1646,36 @@ def station_readiness():
     Now uses a single batch SELECT to fetch all resource rows, then scores are
     computed in Python — one connection total per request.
     """
+    started_at = time.perf_counter()
+    body_size = len(request.get_data(cache=True) or b"")
+    logger.info(
+        "[final_endpoints:station-readiness] -> %s %s body_bytes=%s",
+        request.method,
+        request.path,
+        body_size,
+    )
     try:
+        loads_started_at = time.perf_counter()
         loads = compute_station_loads(DATA_FILE)
+        logger.info(
+            "[final_endpoints:station-readiness] loads duration=%.3fs",
+            time.perf_counter() - loads_started_at,
+        )
         station_param = request.args.get("station")
 
         if station_param:
             # Single-station path: still just one connection via _get()
+            single_started_at = time.perf_counter()
             result = compute_readiness_score(station_param, tracker, loads)
-            return jsonify(result)
+            logger.info(
+                "[final_endpoints:station-readiness] single-station duration=%.3fs",
+                time.perf_counter() - single_started_at,
+            )
+            return _log_endpoint_response("station-readiness", started_at, jsonify(result))
 
         # ── All-stations path: batch fetch, then score in Python ──────────────
         # ONE query replaces 53 sequential psycopg2.connect() calls.
+        batch_started_at = time.perf_counter()
         all_resources = tracker.get_all_resources_batch()  # {name: resource_dict}
 
         import math
@@ -1592,11 +1715,19 @@ def station_readiness():
             })
 
         results.sort(key=lambda x: x["readiness_score"], reverse=True)
-        return jsonify(results)
+        logger.info(
+            "[final_endpoints:station-readiness] batch duration=%.3fs",
+            time.perf_counter() - batch_started_at,
+        )
+        return _log_endpoint_response("station-readiness", started_at, jsonify(results))
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return _log_endpoint_response(
+            "station-readiness",
+            started_at,
+            (jsonify({"success": False, "error": str(e)}), 500),
+        )
 
 
 # ── Corridor Ripple Simulator Endpoint ───────────────────────────────────────

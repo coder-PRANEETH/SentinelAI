@@ -6,6 +6,7 @@
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL || 'http://127.0.0.1:5000';
+const DIAGNOSTIC_PATHS = new Set(['/dispatch', '/historical-search', '/station-readiness']);
 
 // Fixed per-station resource caps from final_endpoints/models.py DEFAULT_RESOURCES.
 // The API never returns these totals, only current availability, so they're mirrored here.
@@ -23,7 +24,21 @@ export type FinalApiError = {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
+  const startedAt = performance.now();
+  const requestBody = options.body;
+  const bodySize =
+    typeof requestBody === 'string'
+      ? requestBody.length
+      : requestBody instanceof FormData
+        ? Array.from(requestBody.values()).reduce((sum, value) => sum + (typeof value === 'string' ? value.length : 0), 0)
+        : requestBody instanceof Blob
+          ? requestBody.size
+          : 0;
+  const shouldLog = DIAGNOSTIC_PATHS.has(path.split('?')[0]);
   try {
+    if (shouldLog) {
+      console.info(`[finalEndpointsApi] -> ${options.method || 'GET'} ${path} body_bytes=${bodySize}`);
+    }
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       headers: {
@@ -32,24 +47,38 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       },
     });
   } catch {
+    if (shouldLog) {
+      console.info(`[finalEndpointsApi] !! fetch failed ${path} duration_ms=${Math.round(performance.now() - startedAt)}`);
+    }
     throw { message: 'Could not reach the final_endpoints server. Is it running?', status: 0 } as FinalApiError;
   }
 
-  let body: any = {};
+  let responseBody: any = {};
   try {
     const text = await response.text();
     // Python's jsonify sometimes outputs NaN, which is invalid JSON.
     const safeText = text.replace(/:\s*NaN/g, ': null');
-    body = JSON.parse(safeText);
+    responseBody = JSON.parse(safeText);
   } catch {
-    body = {};
+    responseBody = {};
   }
 
   if (!response.ok) {
-    throw { message: body.error || 'Request failed.', status: response.status } as FinalApiError;
+    if (shouldLog) {
+      console.info(
+        `[finalEndpointsApi] <- ${options.method || 'GET'} ${path} status=${response.status} duration_ms=${Math.round(performance.now() - startedAt)}`
+      );
+    }
+    throw { message: responseBody.error || 'Request failed.', status: response.status } as FinalApiError;
   }
 
-  return body as T;
+  if (shouldLog) {
+    console.info(
+      `[finalEndpointsApi] <- ${options.method || 'GET'} ${path} status=${response.status} duration_ms=${Math.round(performance.now() - startedAt)}`
+    );
+  }
+
+  return responseBody as T;
 }
 
 // ─── Health ────────────────────────────────────────────────────────────────
