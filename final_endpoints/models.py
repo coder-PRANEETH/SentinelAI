@@ -497,8 +497,8 @@ def _init_db(db_file=DB_FILE, force=False):
         # Fix Chikkajala if it has 0s due to a previous bug
         c.execute("""
             UPDATE station_resources 
-            SET officers=?, vehicles=?, tow_trucks=?, barricades=? 
-            WHERE station=? AND officers=0 AND vehicles=0 AND tow_trucks=0 AND barricades=0
+            SET officers=%s, vehicles=%s, tow_trucks=%s, barricades=%s 
+            WHERE station=%s AND officers=0 AND vehicles=0 AND tow_trucks=0 AND barricades=0
         """, (off, veh, tow, bar, station))
 
     conn.commit()
