@@ -22,7 +22,7 @@ services:
     name: sentinel-final-endpoints
     env: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn models:app"
+    startCommand: "gunicorn models:app --timeout 120 --workers 1 --threads 4"
     rootDir: final_endpoints
     plan: free
     envVars:

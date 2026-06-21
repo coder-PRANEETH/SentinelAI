@@ -217,32 +217,80 @@ STATIONS: List[str] = [
 ]
 
 
-class DBWrapper:
-    def __init__(self):
+# ── Connection pool (initialized once at startup) ────────────────────────────
+# Supabase free tier: 25 max connections.
+# Render free tier: 1 gunicorn worker by default (see start command).
+# Pool sized at min=1, max=5 — well within budget even if concurrency is
+# briefly higher than 1 worker.
+_db_pool = None
+
+def _get_pool():
+    """Lazily initialise the connection pool on first call."""
+    global _db_pool
+    if _db_pool is None:
         db_url = os.environ.get("DATABASE_URL")
         if not db_url:
-            raise Exception("DATABASE_URL environment variable is missing for ResourceTracker")
-        self.conn = psycopg2.connect(db_url)
-    
-    def cursor(self):
-        return self.execute("") # dummy for cursor() call if any, though we return cursors in execute
+            raise Exception("DATABASE_URL environment variable is missing")
+        from psycopg2 import pool as pg_pool
+        _db_pool = pg_pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=5,
+            dsn=db_url,
+        )
+        print("[ResourceDB] Connection pool initialised (min=1, max=5)")
+    return _db_pool
+
+
+class DBWrapper:
+    """Thin wrapper around a pooled psycopg2 connection.
+
+    Always call .close() (or use as a context manager) to return the
+    connection to the pool rather than closing it.
+    """
+    def __init__(self):
+        self._pool = _get_pool()
+        self.conn = self._pool.getconn()
 
     def execute(self, query, params=()):
         cur = self.conn.cursor()
         if query:
+            # Translate SQLite-style ? placeholders to psycopg2 %s
             cur.execute(query.replace('?', '%s'), params)
         return cur
-    
+
+    def fetchall_query(self, query, params=()):
+        """Execute query and return all rows, closing cursor automatically."""
+        cur = self.execute(query, params)
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+
     def commit(self):
         self.conn.commit()
-    
+
     def rollback(self):
         self.conn.rollback()
-        
+
     def close(self):
-        self.conn.close()
+        """Return this connection to the pool (NOT psycopg2 close)."""
+        try:
+            self._pool.putconn(self.conn)
+        except Exception:
+            pass
+
+    # Context-manager support so callers can use `with _get_db_connection() as conn:`
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        self.close()
+        return False
+
 
 def _get_db_connection(db_file=DB_FILE):
+    """Return a DBWrapper backed by the shared connection pool."""
     return DBWrapper()
 
 
@@ -435,75 +483,73 @@ def _mark_backend_incident_in_progress(incident_id: str) -> bool:
 
 def _init_db(db_file=DB_FILE, force=False):
     """Create tables and seed default resources. Safe to call multiple times."""
-    conn = _get_db_connection(db_file)
-    c = conn.cursor()
+    with _get_db_connection() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS station_resources (
+                station     TEXT PRIMARY KEY,
+                officers    INTEGER NOT NULL,
+                vehicles    INTEGER NOT NULL,
+                tow_trucks  INTEGER NOT NULL,
+                barricades  INTEGER NOT NULL
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS station_resources (
-            station     TEXT PRIMARY KEY,
-            officers    INTEGER NOT NULL,
-            vehicles    INTEGER NOT NULL,
-            tow_trucks  INTEGER NOT NULL,
-            barricades  INTEGER NOT NULL
-        )
-    """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS resource_log (
+                id          SERIAL PRIMARY KEY,
+                station     TEXT,
+                action      TEXT,
+                officers    INTEGER,
+                vehicles    INTEGER,
+                tow_trucks  INTEGER,
+                barricades  INTEGER,
+                timestamp   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS resource_log (
-            id          SERIAL PRIMARY KEY,
-            station     TEXT,
-            action      TEXT,
-            officers    INTEGER,
-            vehicles    INTEGER,
-            tow_trucks  INTEGER,
-            barricades  INTEGER,
-            timestamp   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        if force:
+            conn.execute("DELETE FROM station_resources")
 
-    if force:
-        c.execute("DELETE FROM station_resources")
+        # Seed only missing stations
+        import random
+        for i, station in enumerate(STATIONS):
+            if i % 5 == 0:
+                off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(2, 8))
+                veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(1, 3))
+                tow = max(0, DEFAULT_RESOURCES["tow_trucks"] - random.randint(0, 1))
+                bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(5, 15))
+            elif i % 3 == 0:
+                off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(1, 4))
+                veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(0, 1))
+                tow = DEFAULT_RESOURCES["tow_trucks"]
+                bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(2, 5))
+            else:
+                off = DEFAULT_RESOURCES["officers"]
+                veh = DEFAULT_RESOURCES["vehicles"]
+                tow = DEFAULT_RESOURCES["tow_trucks"]
+                bar = DEFAULT_RESOURCES["barricades"]
 
-    # Seed only missing stations
-    import random
-    for i, station in enumerate(STATIONS):
-        # Create some realistic variations for demo purposes
-        if i % 5 == 0:
-            off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(2, 8))
-            veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(1, 3))
-            tow = max(0, DEFAULT_RESOURCES["tow_trucks"] - random.randint(0, 1))
-            bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(5, 15))
-        elif i % 3 == 0:
-            off = max(0, DEFAULT_RESOURCES["officers"] - random.randint(1, 4))
-            veh = max(0, DEFAULT_RESOURCES["vehicles"] - random.randint(0, 1))
-            tow = DEFAULT_RESOURCES["tow_trucks"]
-            bar = max(0, DEFAULT_RESOURCES["barricades"] - random.randint(2, 5))
-        else:
-            off = DEFAULT_RESOURCES["officers"]
-            veh = DEFAULT_RESOURCES["vehicles"]
-            tow = DEFAULT_RESOURCES["tow_trucks"]
-            bar = DEFAULT_RESOURCES["barricades"]
+            conn.execute(
+                "INSERT INTO station_resources VALUES (%s,%s,%s,%s,%s) ON CONFLICT (station) DO NOTHING",
+                (station, off, veh, tow, bar),
+            )
 
-        c.execute(
-            "INSERT INTO station_resources VALUES (%s,%s,%s,%s,%s) ON CONFLICT (station) DO NOTHING",
-            (station, off, veh, tow, bar),
-        )
+            # Fix any station with all zeros from a previous bug
+            conn.execute("""
+                UPDATE station_resources
+                SET officers=%s, vehicles=%s, tow_trucks=%s, barricades=%s
+                WHERE station=%s AND officers=0 AND vehicles=0 AND tow_trucks=0 AND barricades=0
+            """, (off, veh, tow, bar, station))
 
-        # Fix Chikkajala if it has 0s due to a previous bug
-        c.execute("""
-            UPDATE station_resources 
-            SET officers=%s, vehicles=%s, tow_trucks=%s, barricades=%s 
-            WHERE station=%s AND officers=0 AND vehicles=0 AND tow_trucks=0 AND barricades=0
-        """, (off, veh, tow, bar, station))
-
-    conn.commit()
-    conn.close()
-    print(f"[ResourceDB] Initialised with {len(STATIONS)} stations -> {db_file}")
+        conn.commit()
+    print(f"[ResourceDB] Initialised with {len(STATIONS)} stations")
 
 
 def _log_action(conn, station, action, officers, vehicles, tow_trucks, barricades):
+    # Uses %s placeholders (psycopg2); DBWrapper.execute() also handles ? → %s,
+    # but we write %s directly here to be explicit.
     conn.execute(
-        "INSERT INTO resource_log (station,action,officers,vehicles,tow_trucks,barricades) VALUES (?,?,?,?,?,?)",
+        "INSERT INTO resource_log (station,action,officers,vehicles,tow_trucks,barricades) VALUES (%s,%s,%s,%s,%s,%s)",
         (station, action, officers, vehicles, tow_trucks, barricades),
     )
 
@@ -560,21 +606,21 @@ class ResourceTracker:
         barricades: int = 0,
     ) -> dict:
         """
-        Deduct resources for an active dispatch.
+        Deduct resources for an active dispatch within a single pooled connection.
         Raises ValueError if station lacks sufficient resources.
         """
-        conn = _get_db_connection(self.db_file)
-        try:
-            row = conn.execute(
-                "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=?",
+        with _get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=%s",
                 (station,),
-            ).fetchone()
+            )
+            row = cur.fetchone()
+            cur.close()
             if not row:
                 raise ValueError(f"Station '{station}' not found.")
 
             cur_o, cur_v, cur_t, cur_b = row
 
-            # Validate sufficiency
             shortages = []
             if officers   > cur_o: shortages.append(f"officers (need {officers}, have {cur_o})")
             if vehicles   > cur_v: shortages.append(f"vehicles (need {vehicles}, have {cur_v})")
@@ -591,17 +637,23 @@ class ResourceTracker:
             self._update(conn, station, new_o, new_v, new_t, new_b)
             _log_action(conn, station, "allocate", officers, vehicles, tow_trucks, barricades)
             conn.commit()
-        finally:
-            conn.close()
 
-        result = {
+            # Read back remaining within the SAME connection — no second round-trip
+            remaining = {
+                "station": station,
+                "officers": new_o,
+                "vehicles": new_v,
+                "tow_trucks": new_t,
+                "barricades": new_b,
+            }
+
+        return {
             "station":    station,
             "action":     "allocated",
             "dispatched": {"officers": officers, "vehicles": vehicles,
                            "tow_trucks": tow_trucks, "barricades": barricades},
-            "remaining":  self.get_available_resources(station),
+            "remaining":  remaining,
         }
-        return result
 
     def release_resources(
         self,
@@ -611,13 +663,14 @@ class ResourceTracker:
         tow_trucks: int = 0,
         barricades: int = 0,
     ) -> dict:
-        """Return resources to station after incident resolution."""
-        conn = _get_db_connection(self.db_file)
-        try:
-            row = conn.execute(
-                "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=?",
+        """Return resources to station after incident resolution, single connection."""
+        with _get_db_connection() as conn:
+            cur = conn.execute(
+                "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=%s",
                 (station,),
-            ).fetchone()
+            )
+            row = cur.fetchone()
+            cur.close()
             if not row:
                 raise ValueError(f"Station '{station}' not found.")
 
@@ -629,29 +682,52 @@ class ResourceTracker:
             self._update(conn, station, new_o, new_v, new_t, new_b)
             _log_action(conn, station, "release", officers, vehicles, tow_trucks, barricades)
             conn.commit()
-        finally:
-            conn.close()
 
-        result = {
-            "station":   station,
-            "action":    "released",
-            "returned":  {"officers": officers, "vehicles": vehicles,
-                          "tow_trucks": tow_trucks, "barricades": barricades},
-            "current":   self.get_available_resources(station),
+            current = {
+                "station": station,
+                "officers": new_o,
+                "vehicles": new_v,
+                "tow_trucks": new_t,
+                "barricades": new_b,
+            }
+
+        return {
+            "station":  station,
+            "action":   "released",
+            "returned": {"officers": officers, "vehicles": vehicles,
+                         "tow_trucks": tow_trucks, "barricades": barricades},
+            "current":  current,
         }
-        return result
 
     def list_all_stations(self) -> list:
-        conn = _get_db_connection(self.db_file)
-        rows = conn.execute(
-            "SELECT station, officers, vehicles, tow_trucks, barricades FROM station_resources ORDER BY station"
-        ).fetchall()
-        conn.close()
+        """Fetch all station resources in one query."""
+        with _get_db_connection() as conn:
+            rows = conn.fetchall_query(
+                "SELECT station, officers, vehicles, tow_trucks, barricades FROM station_resources ORDER BY station"
+            )
         return [
             {"station": r[0], "officers": r[1], "vehicles": r[2],
              "tow_trucks": r[3], "barricades": r[4]}
             for r in rows
         ]
+
+    def get_all_resources_batch(self) -> dict:
+        """Fetch ALL stations in one query. Returns {station_name: resource_dict}.
+        Used by station_readiness to avoid 53 separate DB round-trips."""
+        with _get_db_connection() as conn:
+            rows = conn.fetchall_query(
+                "SELECT station, officers, vehicles, tow_trucks, barricades FROM station_resources"
+            )
+        return {
+            r[0]: {
+                "station":    r[0],
+                "officers":   r[1],
+                "vehicles":   r[2],
+                "tow_trucks": r[3],
+                "barricades": r[4],
+            }
+            for r in rows
+        }
 
 
 # Initialise the tracker at module level
@@ -1460,19 +1536,61 @@ def station_readiness():
     """
     GET /station-readiness?station=Peenya
     Without ?station param, returns readiness for all stations.
+
+    FIX: Previously opened 53 sequential psycopg2 connections (one per station
+    inside compute_readiness_score → get_available_resources → _get → DBWrapper).
+    Now uses a single batch SELECT to fetch all resource rows, then scores are
+    computed in Python — one connection total per request.
     """
     try:
         loads = compute_station_loads(DATA_FILE)
         station_param = request.args.get("station")
 
         if station_param:
+            # Single-station path: still just one connection via _get()
             result = compute_readiness_score(station_param, tracker, loads)
             return jsonify(result)
 
-        # All stations
+        # ── All-stations path: batch fetch, then score in Python ──────────────
+        # ONE query replaces 53 sequential psycopg2.connect() calls.
+        all_resources = tracker.get_all_resources_batch()  # {name: resource_dict}
+
+        import math
         results = []
-        for s in STATIONS:
-            results.append(compute_readiness_score(s, tracker, loads))
+        for station in STATIONS:
+            res = all_resources.get(station)
+            if res is None:
+                results.append({"station": station, "readiness_score": 0.0,
+                                 "error": "Station not in resource DB"})
+                continue
+
+            load = loads.get(station, {
+                "active_incidents": 0,
+                "high_priority_incidents": 0,
+                "avg_resolution_mins": 60.0,
+            })
+
+            resource_ratio = (
+                RESOURCE_WEIGHTS["officers"]   * (res["officers"]   / max(DEFAULT_RESOURCES["officers"],   1)) +
+                RESOURCE_WEIGHTS["vehicles"]   * (res["vehicles"]   / max(DEFAULT_RESOURCES["vehicles"],   1)) +
+                RESOURCE_WEIGHTS["tow_trucks"] * (res["tow_trucks"] / max(DEFAULT_RESOURCES["tow_trucks"], 1))
+            )
+            effective_load = load["active_incidents"] + 0.5 * load["high_priority_incidents"]
+            load_factor = math.log1p(effective_load) / 1.5
+            score = round((resource_ratio / (1.0 + load_factor)) * 100, 1)
+
+            results.append({
+                "station":                 station,
+                "readiness_score":         score,
+                "resource_ratio_pct":      round(resource_ratio * 100, 1),
+                "available_officers":      res["officers"],
+                "available_vehicles":      res["vehicles"],
+                "available_tow_trucks":    res["tow_trucks"],
+                "active_incidents":        load["active_incidents"],
+                "high_priority_incidents": load["high_priority_incidents"],
+                "avg_resolution_mins":     load["avg_resolution_mins"],
+            })
+
         results.sort(key=lambda x: x["readiness_score"], reverse=True)
         return jsonify(results)
 
