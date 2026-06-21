@@ -15,6 +15,7 @@ import json
 import sqlite3
 import pickle
 import uuid
+import re
 import traceback
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
@@ -362,6 +363,49 @@ def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
             conn.close()
 
     return incident_id, prediction_id
+
+
+def _extract_incident_id(payload: dict) -> Optional[str]:
+    """Best-effort incident_id extraction for dispatch/status updates."""
+    incident_id = payload.get("incident_id")
+    if incident_id:
+        return str(incident_id).strip()
+
+    incident_text = str(payload.get("incident_text", "") or "")
+    match = re.search(r"INC-\d{4}-\d{6}", incident_text)
+    if match:
+        return match.group(0)
+    return None
+
+
+def _mark_backend_incident_in_progress(incident_id: str) -> bool:
+    """Update the backend incident row to IN_PROGRESS if it exists."""
+    conn = None
+    try:
+        conn = psycopg2.connect(BACKEND_DATABASE_URL, connect_timeout=3)
+        conn.autocommit = False
+        cur = conn.cursor()
+        cur.execute(
+            """
+            UPDATE incidents
+               SET status = 'IN_PROGRESS',
+                   updated_at = NOW()
+             WHERE incident_id = %s
+               AND status IN ('REPORTED', 'UNDER_ASSESSMENT', 'RESOURCES_ASSIGNED', 'IN_PROGRESS')
+            """,
+            (incident_id,),
+        )
+        updated = cur.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception:
+        if conn is not None:
+            conn.rollback()
+        traceback.print_exc()
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _init_db(db_file=DB_FILE, force=False):
@@ -1298,7 +1342,7 @@ def dispatch_endpoint():
     }
     """
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         incident_text = data.get("incident_text", "")
 
         if not incident_text:
@@ -1311,6 +1355,12 @@ def dispatch_endpoint():
             min_vehicles=_int_param(data.get("min_vehicles"), default=1),
             search_top_k=_int_param(data.get("search_top_k"), default=20),
         )
+
+        incident_id = _extract_incident_id(data)
+        if incident_id:
+            updated = _mark_backend_incident_in_progress(incident_id)
+            result["dispatch"]["incident_id"] = incident_id
+            result["dispatch"]["incident_status_updated"] = updated
         return jsonify(result)
 
     except Exception as e:

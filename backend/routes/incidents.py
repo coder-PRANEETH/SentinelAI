@@ -42,7 +42,7 @@ def _normalize_priority(value):
 def get_active_incidents():
     try:
         active_incidents = Incident.query.filter(
-            Incident.status.notin_(["CLOSED", "CANCELLED", "RESOLVED"])
+            Incident.status.in_(["REPORTED", "IN_PROGRESS"])
         ).order_by(Incident.created_at.desc()).all()
         
         results = []

@@ -19,21 +19,21 @@ class AnalyticsEngine:
     def get_dashboard_kpis(self) -> dict:
         """
         Returns 4 KPI values:
-        - active_incidents: IN_PROGRESS count
-        - avg_resolution_minutes: avg of CLOSED incidents (last 30 days)
+        - active_incidents: REPORTED + IN_PROGRESS count
+        - avg_resolution_minutes: avg of RESOLVED incidents (last 30 days)
         - resources_deployed: SUM of officers_dispatched (active dispatches)
         - high_risk_zones: COUNT of risk_zones with risk_score > 70
         """
         try:
             active = db.session.execute(
-                text("SELECT COUNT(*) FROM incidents WHERE status = 'IN_PROGRESS'")
+                text("SELECT COUNT(*) FROM incidents WHERE status IN ('REPORTED', 'IN_PROGRESS')")
             ).scalar() or 0
 
             avg_res = db.session.execute(
                 text("""
                     SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60)
                     FROM incidents
-                    WHERE status = 'CLOSED'
+                    WHERE status = 'RESOLVED'
                       AND resolved_at IS NOT NULL
                       AND created_at >= NOW() - INTERVAL '30 days'
                 """)
@@ -116,7 +116,7 @@ class AnalyticsEngine:
                         FLOOR(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60 / 15) * 15 AS bucket_start,
                         COUNT(*) AS count
                     FROM incidents
-                    WHERE status = 'CLOSED'
+                    WHERE status = 'RESOLVED'
                       AND resolved_at IS NOT NULL
                       AND created_at >= NOW() - INTERVAL ':days days'
                     GROUP BY bucket_start
@@ -143,18 +143,19 @@ class AnalyticsEngine:
             filter_clause = "AND i.corridor = :corridor" if corridor else ""
             rows = db.session.execute(
                 text(f"""
-                    SELECT
-                        i.corridor,
-                        COUNT(*) AS incident_count,
-                        AVG(EXTRACT(EPOCH FROM (i.resolved_at - i.created_at)) / 60) AS avg_resolution,
-                        SUM(CASE WHEN p.predicted_priority = 'P1' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS p1_rate,
-                        MODE() WITHIN GROUP (ORDER BY i.incident_type) AS most_common_type
-                    FROM incidents i
-                    LEFT JOIN predictions p ON p.incident_id = i.incident_id
-                    WHERE i.corridor IS NOT NULL
-                    {filter_clause}
-                    GROUP BY i.corridor
-                    ORDER BY incident_count DESC
+                        SELECT
+                            i.corridor,
+                            COUNT(*) AS incident_count,
+                            AVG(EXTRACT(EPOCH FROM (i.resolved_at - i.created_at)) / 60) AS avg_resolution,
+                            SUM(CASE WHEN p.predicted_priority = 'P1' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) AS p1_rate,
+                            MODE() WITHIN GROUP (ORDER BY i.incident_type) AS most_common_type
+                        FROM incidents i
+                        LEFT JOIN predictions p ON p.incident_id = i.incident_id
+                        WHERE i.corridor IS NOT NULL
+                          AND i.status = 'RESOLVED'
+                        {filter_clause}
+                        GROUP BY i.corridor
+                        ORDER BY incident_count DESC
                 """),
                 {'corridor': corridor} if corridor else {}
             ).fetchall()

@@ -165,6 +165,7 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
     incident ? ['/dispatch', incidentId] : null,
     async () => {
       const res = await getDispatchRecommendation({
+        incident_id: incidentId,
         incident_text: incident.raw_transcript || incident.incident_type || `Incident ${incidentId}`,
         corridor: incident.corridor || undefined,
         min_officers: 1,

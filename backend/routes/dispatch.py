@@ -16,9 +16,6 @@ from models.incidents import Incident
 from models.dispatches import Dispatch
 from models.audit_logs import AuditLog
 from services.readiness_service import readiness_service
-from services.sentinel_incident_service import (
-    sentinel_incident_service, IncidentStateMachineError
-)
 from middleware.rbac import require_role
 from utils.validators import DispatchSchema
 from utils.id_generator import generate_dispatch_id
@@ -65,12 +62,12 @@ def create_dispatch():
     if not incident:
         return jsonify({"error": "NOT_FOUND", "message": f"Incident '{incident_id}' not found", "details": {}}), 404
 
-    if incident.status not in ("UNDER_ASSESSMENT", "RESOURCES_ASSIGNED"):
+    if incident.status not in ("REPORTED", "UNDER_ASSESSMENT", "RESOURCES_ASSIGNED", "IN_PROGRESS"):
         return jsonify({
             "error": "CONFLICT",
             "message": (
                 f"Incident '{incident_id}' is in status '{incident.status}'. "
-                f"Dispatch requires UNDER_ASSESSMENT or RESOURCES_ASSIGNED."
+                f"Dispatch requires REPORTED, UNDER_ASSESSMENT, RESOURCES_ASSIGNED, or IN_PROGRESS."
             ),
             "details": {"current_status": incident.status},
         }), 409
@@ -132,17 +129,10 @@ def create_dispatch():
             ip_address=request.remote_addr,
         ))
 
-    # Advance incident state machine
-    try:
-        sentinel_incident_service.transition(
-            incident_id=incident_id,
-            new_status="RESOURCES_ASSIGNED",
-            operator_id=user_id,
-            operator_role=user_role,
-            reason=f"Dispatch {dispatch_id} created",
-        )
-    except IncidentStateMachineError:
-        pass  # Already in RESOURCES_ASSIGNED — OK for re-dispatches
+    # Mark incident as in progress once dispatch is confirmed.
+    incident.status = "IN_PROGRESS"
+    incident.updated_at = datetime.now(timezone.utc)
+    db.session.add(incident)
 
     db.session.commit()
     logger.info(f"[Dispatch] {dispatch_id} created for {incident_id} → {station_id}")
@@ -156,7 +146,7 @@ def create_dispatch():
         "dispatch_id": dispatch_id,
         "incident_id": incident_id,
         "station_id": station_id,
-        "incident_status": "RESOURCES_ASSIGNED",
+        "incident_status": "IN_PROGRESS",
         "resources_dispatched": {
             "officers": officers,
             "vehicles": vehicles,

@@ -201,6 +201,7 @@ export const historicalSearch = (query: string, top_k = 20) =>
 // ─── Dispatch ──────────────────────────────────────────────────────────────
 
 export interface DispatchPayload {
+  incident_id?: string;
   incident_text: string;
   corridor?: string;
   min_officers?: number;
@@ -219,6 +220,8 @@ export interface DispatchCandidate {
 export interface DispatchResponse {
   dispatch: {
     incident: string;
+    incident_id?: string;
+    incident_status_updated?: boolean;
     recommended_station: string;
     readiness_score: number;
     reasons: string[];

@@ -5,6 +5,7 @@ Computes model drift alert if prediction error > thresholds.
 """
 
 import logging
+from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from marshmallow import ValidationError
@@ -47,7 +48,7 @@ def submit_feedback():
     if not incident:
         return jsonify({"error": "NOT_FOUND", "message": f"Incident '{incident_id}' not found", "details": {}}), 404
 
-    if incident.status == "CLOSED":
+    if incident.status in ("RESOLVED", "CLOSED"):
         return jsonify({"error": "CONFLICT", "message": "Feedback already submitted for this incident", "details": {}}), 409
 
     # Fetch prediction for drift calculation
@@ -82,18 +83,11 @@ def submit_feedback():
     )
     db.session.add(feedback)
 
-    # Transition incident to CLOSED
-    try:
-        sentinel_incident_service.transition(
-            incident_id=incident_id,
-            new_status="CLOSED",
-            operator_id=user_id,
-            operator_role=user_role,
-            reason="Feedback submitted",
-        )
-    except IncidentStateMachineError as e:
-        db.session.rollback()
-        return jsonify({"error": "CONFLICT", "message": str(e), "details": {}}), 409
+    # Mark incident as resolved when feedback is submitted.
+    incident.status = "RESOLVED"
+    incident.resolved_at = datetime.now(timezone.utc)
+    incident.updated_at = datetime.now(timezone.utc)
+    db.session.add(incident)
 
     db.session.commit()
 
@@ -101,7 +95,7 @@ def submit_feedback():
         "success": True,
         "feedback_id": str(feedback.feedback_id),
         "incident_id": incident_id,
-        "incident_status": "CLOSED",
+        "incident_status": "RESOLVED",
         "priority_accurate": priority_accurate,
         "resolution_error_minutes": resolution_error,
         "model_drift_alert": model_drift_alert,

@@ -44,6 +44,7 @@ export default function DispatchPage() {
     ['/dispatch', submitted],
     async ([, inputs]: [string, RecommendationInputs]) => {
       const res = await getDispatchRecommendation({
+        incident_id: incidentId,
         incident_text: inputs.incidentText || `Incident ${incidentId}`,
         corridor: inputs.corridor || undefined,
         min_officers: inputs.minOfficers,

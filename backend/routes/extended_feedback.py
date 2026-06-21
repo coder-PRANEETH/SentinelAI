@@ -1,86 +1,153 @@
-"""
-routes/extended_feedback.py
-POST /feedback — Extended ground-truth feedback form with additional fields:
-  incident_id, actual_priority, actual_closure, actual_resolution_time,
-  officers_used, barricades_used, remarks
-"""
-
-import uuid
 import logging
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from marshmallow import ValidationError
 
 from models.base import db
 from models.incidents import Incident
+from models.incident_feedback import IncidentFeedback
+from models.predictions import Prediction
+from utils.validators import FeedbackSchema
 
 logger = logging.getLogger(__name__)
 extended_feedback_bp = Blueprint("extended_feedback", __name__)
+_feedback_schema = FeedbackSchema()
+
+RESOLUTION_DRIFT_THRESHOLD_MINUTES = 30
 
 
-class ExtendedFeedback(db.Model):
-    """Standalone feedback table with the exact columns requested."""
-    __tablename__ = "extended_feedback"
-
-    feedback_id = db.Column(
-        db.String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    incident_id = db.Column(
-        db.String(20),
-        db.ForeignKey("incidents.incident_id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    actual_priority = db.Column(db.String(5), nullable=True)        # P1-P4
-    actual_closure = db.Column(db.Boolean, nullable=True)           # road closed?
-    actual_resolution_time = db.Column(db.Integer, nullable=True)   # minutes
-    officers_used = db.Column(db.Integer, nullable=True)
-    barricades_used = db.Column(db.Integer, nullable=True)
-    remarks = db.Column(db.Text, nullable=True)
-    submitted_by = db.Column(db.String(36), nullable=True)
-    submitted_at = db.Column(
-        db.DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
+def _normalize_extended_payload(data: dict) -> dict:
+    """
+    Accept the extended form field names and normalize them to the canonical
+    feedback schema used by the database.
+    """
+    return {
+        "incident_id": (data.get("incident_id") or "").strip(),
+        "actual_priority": data.get("actual_priority"),
+        "actual_resolution_time_minutes": (
+            data.get("actual_resolution_time_minutes")
+            if data.get("actual_resolution_time_minutes") is not None
+            else data.get("actual_resolution_time")
+        ),
+        "road_closure_occurred": (
+            data.get("road_closure_occurred")
+            if data.get("road_closure_occurred") is not None
+            else data.get("actual_closure")
+        ),
+        "outcome_description": data.get("outcome_description") or data.get("remarks"),
+        "operator_id": data.get("operator_id"),
+    }
 
 
 @extended_feedback_bp.route("/feedback", methods=["POST"])
 @jwt_required()
 def submit_extended_feedback():
-    """Submit extended incident feedback."""
+    """Submit extended incident feedback using the real feedback schema."""
     user_id = get_jwt_identity()
     data = request.get_json(silent=True) or {}
 
-    incident_id = data.get("incident_id", "").strip()
-    if not incident_id:
-        return jsonify({"error": "VALIDATION_ERROR", "message": "incident_id is required", "details": {}}), 400
+    try:
+        normalized = _normalize_extended_payload(data)
+        feedback_data = _feedback_schema.load(normalized)
+    except ValidationError as e:
+        return (
+            jsonify(
+                {
+                    "error": "VALIDATION_ERROR",
+                    "message": "Invalid request body",
+                    "details": e.messages,
+                }
+            ),
+            400,
+        )
+
+    incident_id = feedback_data["incident_id"]
 
     # Verify incident exists
     incident = Incident.query.filter_by(incident_id=incident_id).first()
     if not incident:
-        return jsonify({"error": "NOT_FOUND", "message": f"Incident '{incident_id}' not found", "details": {}}), 404
+        return (
+            jsonify(
+                {
+                    "error": "NOT_FOUND",
+                    "message": f"Incident '{incident_id}' not found",
+                    "details": {},
+                }
+            ),
+            404,
+        )
+
+    if incident.status in ("RESOLVED", "CLOSED"):
+        return (
+            jsonify(
+                {
+                    "error": "CONFLICT",
+                    "message": "Feedback already submitted for this incident",
+                    "details": {},
+                }
+            ),
+            409,
+        )
+
+    prediction = Prediction.query.filter_by(incident_id=incident_id).first()
+
+    actual_priority = feedback_data["actual_priority"]
+    actual_resolution = feedback_data["actual_resolution_time_minutes"]
+
+    priority_accurate = None
+    resolution_error = None
+    model_drift_alert = False
+
+    if prediction:
+        priority_accurate = prediction.predicted_priority == actual_priority
+        if prediction.predicted_resolution_minutes is not None:
+            resolution_error = abs(actual_resolution - prediction.predicted_resolution_minutes)
+            if resolution_error > RESOLUTION_DRIFT_THRESHOLD_MINUTES:
+                model_drift_alert = True
+        if not priority_accurate:
+            model_drift_alert = True
 
     try:
-        fb = ExtendedFeedback(
+        feedback = IncidentFeedback(
             incident_id=incident_id,
-            actual_priority=data.get("actual_priority"),
-            actual_closure=bool(data.get("actual_closure", False)),
-            actual_resolution_time=int(data["actual_resolution_time"]) if data.get("actual_resolution_time") is not None else None,
-            officers_used=int(data["officers_used"]) if data.get("officers_used") is not None else None,
-            barricades_used=int(data["barricades_used"]) if data.get("barricades_used") is not None else None,
-            remarks=data.get("remarks"),
-            submitted_by=str(user_id),
+            actual_priority=actual_priority,
+            actual_resolution_time_minutes=actual_resolution,
+            road_closure_occurred=feedback_data["road_closure_occurred"],
+            outcome_description=feedback_data.get("outcome_description"),
+            submitted_by=user_id,
+            priority_accurate=priority_accurate,
+            resolution_error_minutes=resolution_error,
         )
-        db.session.add(fb)
+        db.session.add(feedback)
+
+        incident_status = "RESOLVED"
+        incident.status = incident_status
+        incident.resolved_at = datetime.now(timezone.utc)
+        incident.updated_at = datetime.now(timezone.utc)
+        db.session.add(incident)
+
         db.session.commit()
 
-        return jsonify({
+        response = {
             "success": True,
-            "feedback_id": fb.feedback_id,
+            "feedback_id": str(feedback.feedback_id),
             "incident_id": incident_id,
+            "incident_status": incident_status,
+            "priority_accurate": priority_accurate,
+            "resolution_error_minutes": resolution_error,
+            "model_drift_alert": model_drift_alert,
             "message": "Feedback submitted successfully.",
-        }), 201
+        }
+
+        if model_drift_alert:
+            response["drift_reason"] = (
+                "Priority mismatch"
+                if not priority_accurate
+                else f"Resolution error {resolution_error} min exceeds {RESOLUTION_DRIFT_THRESHOLD_MINUTES} min threshold"
+            )
+
+        return jsonify(response), 200
 
     except Exception as e:
         db.session.rollback()
