@@ -51,8 +51,11 @@ app = FastAPI(title="SentinelAI Incident Copilot Backend")
 # FastAPI's CORSMiddleware is the sole CORS layer.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
-    allow_origin_regex=r"https://.*\.pages\.dev",
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://sentinel-ai-ashen-seven.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
