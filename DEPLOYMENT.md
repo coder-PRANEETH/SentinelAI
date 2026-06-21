@@ -47,8 +47,6 @@ Create two **New Web Services** on Render connected to this repository.
   - `DATABASE_URL`: `<Supabase Connection String>`
   - `SUPABASE_URL`: `<Supabase Project URL>`
   - `SUPABASE_ANON_KEY`: `<Supabase Anon Key>`
-  - `GEMINI_API_KEY`: `<Google Gemini API Key>`
-  - `OPENAI_API_KEY`: `<OpenAI API Key>`
 
 **Service 2: Sentinel AI & Models**
 - **Root Directory:** `final_endpoints`

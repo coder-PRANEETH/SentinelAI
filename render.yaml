@@ -13,10 +13,6 @@ services:
         value: "placeholder"
       - key: DATABASE_URL
         value: "placeholder"
-      - key: GEMINI_API_KEY
-        value: "placeholder"
-      - key: OPENAI_API_KEY
-        value: "placeholder"
 
   - type: web
     name: sentinel-final-endpoints
