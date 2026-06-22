@@ -15,9 +15,15 @@ import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api, IncidentDetail, Incident } from '@/lib/api';
 import { listStationReadiness, getStation, allocateResources, historicalSearch, getDispatchRecommendation, simulateRipple, FinalApiError } from '@/api/finalEndpointsApi';
 
+// Dynamically import map components to prevent SSR canvas errors in Next.js
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
   { ssr: false, loading: () => <div className="card" style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState message="Loading map…" /></div> }
+);
+
+const RippleMap = dynamic(
+  () => import('@/components/layout/Ripplemap'),
+  { ssr: false, loading: () => <div className="card" style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState message="Loading simulation map…" /></div> }
 );
 
 // ── Priority color helpers ──────────────────────────────────────────────────
@@ -63,7 +69,6 @@ function AllocateModal({
     setSubmitting(true);
     setErr('');
     try {
-      // Fetch full current resources (readiness omits barricades) right before committing.
       const resources = await getStation(station.station);
       await allocateResources(station.station, {
         officers: resources.officers,
@@ -173,7 +178,7 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         search_top_k: 8,
       };
       try {
-        return await getDispatchRecommendation(payload); // returns { dispatch, historical_context }
+        return await getDispatchRecommendation(payload);
       } catch (err) {
         throw err;
       }
@@ -194,13 +199,12 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
     try {
       const resources = await getStation(result.dispatch.recommended_station);
       await allocateResources(result.dispatch.recommended_station, {
-        officers: resources.officers || 2, // fallback defaults
+        officers: resources.officers || 2,
         vehicles: resources.vehicles || 1,
         tow_trucks: resources.tow_trucks || 0,
         barricades: resources.barricades || 0,
       });
       setDispatchSuccess(true);
-      // Immediately reflect state updates globally where applicable
       mutate('/station-readiness');
     } catch (e) {
       setDispatchErr((e as FinalApiError).message || 'Failed to dispatch.');
@@ -265,7 +269,6 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         </div>
       )}
 
-      {/* Historical Context */}
       {historical_context && (
         <div style={{ marginTop: '16px', background: 'rgba(255,255,255,0.4)', borderRadius: '10px', padding: '12px' }}>
           <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(17,17,17,0.6)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
@@ -280,7 +283,6 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         </div>
       )}
 
-      {/* Candidates toggle */}
       {dispatch.top_candidates && dispatch.top_candidates.length > 1 && (
         <div style={{ marginTop: '12px' }}>
           <button 
@@ -308,7 +310,6 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         </div>
       )}
 
-      {/* Action */}
       <div style={{ marginTop: '16px' }}>
         {dispatchSuccess ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.5)', borderRadius: '10px', fontSize: '13px', fontWeight: 600, color: '#059669' }}>
@@ -350,6 +351,12 @@ export default function IncidentDetailPage() {
   const [isSimulating, setIsSimulating] = useState(false);
   const [rippleData, setRippleData] = useState<any[] | null>(null);
 
+  const { data: incident, isLoading, error } = useSWR(
+    incidentId ? `/incidents/${incidentId}` : null,
+    () => api.incidents.get(incidentId),
+    { revalidateOnFocus: false }
+  );
+
   const handleSimulateRipple = async () => {
     if (!incident?.corridor) return;
     setIsSimulating(true);
@@ -364,13 +371,6 @@ export default function IncidentDetailPage() {
     }
   };
 
-  const { data: incident, isLoading, error } = useSWR(
-    incidentId ? `/incidents/${incidentId}` : null,
-    () => api.incidents.get(incidentId),
-    { revalidateOnFocus: false }
-  );
-
-  // Historical similar incidents
   const { data: historicalData, isLoading: histLoading } = useSWR(
     incident?.corridor ? `/historical/${incidentId}` : null,
     async () => {
@@ -443,7 +443,7 @@ export default function IncidentDetailPage() {
 
             {/* Header card */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start',  flexWrap: 'wrap', gap: 12 }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                     <PriorityBadge priority={priority} />
@@ -571,7 +571,7 @@ export default function IncidentDetailPage() {
 
                   {/* Road Closure Probability Gauge */}
                   <div style={{ background: '#F9FAFB', borderRadius: 14, padding: '14px 16px', gridColumn: 'span 2' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ display: 'flex',  alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         Road Closure Risk
                       </div>
@@ -582,7 +582,7 @@ export default function IncidentDetailPage() {
                     
                     {pred.road_closure_probability != null && (
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
                           <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#111111' }}>
                             {Math.round(pred.road_closure_probability * 100)}%
                           </span>
@@ -631,18 +631,28 @@ export default function IncidentDetailPage() {
               <RecommendedStationPanel incident={incident} incidentId={incidentId} />
             )}
 
-            {/* Map */}
+            {/* Persistent Dynamic RippleMap Integration */}
             {incident.latitude && incident.longitude ? (
-              <div className="card" style={{ padding: 0, overflow: 'hidden', height: 340 }}>
-                <BengaluruMap
-                  incidents={[incident as Incident]}
-                  height="100%"
-                  showLayerControls={false}
-                  rippleNodes={rippleData || []}
-                />
+              <div className="card" style={{ padding: 0, overflow: 'hidden', height: rippleData ? 520 : 340 }}>
+                {rippleData ? (
+                  <RippleMap
+                    startNode={{
+                      name: incident.location || incident.corridor || `Incident ${incidentId}`,
+                      lat: Number(incident.latitude),
+                      lon: Number(incident.longitude),
+                    }}
+                    rippleData={rippleData}
+                  />
+                ) : (
+                  <BengaluruMap
+                    incidents={[incident as Incident]}
+                    height="100%"
+                    showLayerControls={false}
+                  />
+                )}
               </div>
             ) : (
-              <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#9CA3AF', fontSize: 13, height: 100 }}>
+              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', fontSize: 13, height: 100 }}>
                 <MapPin size={16} /> No location data available for this incident
               </div>
             )}
@@ -676,7 +686,7 @@ export default function IncidentDetailPage() {
                       onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center',marginBottom: 4 }}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 9999, fontSize: 10, fontWeight: 700,
                           background: PRIORITY_COLORS[c.priority]?.bg ?? '#F3F4F6',
@@ -730,7 +740,7 @@ export default function IncidentDetailPage() {
                   <Check size={14} style={{ color: '#6B7280' }} /> Submit Feedback
                 </Link>
 
-                {incident.corridor && incident.prediction?.road_closure_probability && incident.prediction.road_closure_probability > 0.4 ? (
+                {incident.corridor && incident.prediction?.road_closure_probability && incident.prediction.road_closure_probability > 0.1 ? (
                   <button
                     onClick={handleSimulateRipple}
                     disabled={isSimulating}
