@@ -17,6 +17,32 @@ import { distanceKm, etaMinutes } from "./geo";
 const FINAL_ENDPOINTS_BASE =
   process.env.NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL || "http://127.0.0.1:5000";
 
+/**
+ * Resolve a free-text address/landmark to coordinates, for the manual
+ * location fallback when browser geolocation is denied or unsupported.
+ * Uses OpenStreetMap's free Nominatim geocoder — no API key required.
+ */
+export async function geocodeAddress(query: string): Promise<{ point: GeoPoint; label: string }> {
+  const params = new URLSearchParams({
+    q: query,
+    format: "json",
+    limit: "1",
+    countrycodes: "in",
+    viewbox: "77.35,13.2,77.95,12.75",
+    bounded: "0",
+  });
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error("Location search failed — try again.");
+  const data = (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+  if (!data.length) throw new Error(`Couldn't find "${query}". Try a more specific address.`);
+  return {
+    point: { latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) },
+    label: data[0].display_name,
+  };
+}
+
 function generateMockIncidentId(): string {
   const year = new Date().getFullYear();
   const rand = Math.floor(100000 + Math.random() * 900000);
