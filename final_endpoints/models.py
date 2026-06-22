@@ -26,7 +26,7 @@ from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from threading import Lock, Event
+from threading import Lock
 
 from flask import Flask, request, jsonify
 try:
@@ -107,6 +107,12 @@ def _process_rss_mb() -> Optional[float]:
             return None
 
 
+def _log_rss(label: str) -> None:
+    rss_mb = _process_rss_mb()
+    if rss_mb is not None:
+        logger.info("[final_endpoints] %s RSS=%.2f MB", label, rss_mb)
+
+
 def _log_memory_delta(
     label: str,
     started_at: float,
@@ -157,7 +163,13 @@ if CORS is not None:
 
 logger = logging.getLogger(__name__)
 
-if not tracemalloc.is_tracing():
+_MEMORY_DIAGNOSTICS = os.environ.get("FINAL_ENDPOINTS_PROFILE_MEMORY", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+if _MEMORY_DIAGNOSTICS and not tracemalloc.is_tracing():
     tracemalloc.start(25)
 
 _ALLOWED_ORIGIN_PATTERNS = (
@@ -808,7 +820,32 @@ class ResourceTracker:
         }
 
 
-tracker = ResourceTracker()
+_tracker: Optional[ResourceTracker] = None
+_tracker_lock = Lock()
+
+
+def _get_tracker() -> ResourceTracker:
+    """Lazy-load the resource tracker so import time stays lightweight."""
+    global _tracker
+    if _tracker is not None:
+        return _tracker
+
+    with _tracker_lock:
+        if _tracker is not None:
+            return _tracker
+
+        started_at = time.perf_counter()
+        rss_before = _process_rss_mb()
+        logger.info("[final_endpoints] STEP 1 resource tracker init")
+        _tracker = ResourceTracker()
+        logger.info("[final_endpoints] STEP 2 resource tracker ready")
+        logger.info(
+            "[final_endpoints] resource tracker init duration=%.3fs RSS_before=%.2f MB RSS_after=%.2f MB",
+            time.perf_counter() - started_at,
+            rss_before if rss_before is not None else -1.0,
+            _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+        )
+        return _tracker
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -821,6 +858,7 @@ RESOURCE_WEIGHTS = {"officers": 0.5, "vehicles": 0.3, "tow_trucks": 0.2}
 @lru_cache(maxsize=1)
 def _load_dataset(data_file: str) -> pd.DataFrame:
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
     df = pd.read_csv(data_file, encoding="latin1")
     df["start_dt"] = pd.to_datetime(df["start_datetime"], utc=True, errors="coerce")
     logger.info(
@@ -829,6 +867,11 @@ def _load_dataset(data_file: str) -> pd.DataFrame:
         len(df),
         time.perf_counter() - started_at,
     )
+    logger.info(
+        "[final_endpoints] dataset RSS before=%.2f MB after=%.2f MB",
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+    )
     return df
 
 
@@ -836,6 +879,8 @@ def _load_dataset(data_file: str) -> pd.DataFrame:
 def compute_station_loads(data_file: str) -> Dict[str, dict]:
     """Compute per-station load metrics from the historical dataset."""
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
+    logger.info("[final_endpoints] STEP 4 dataset load")
     df = _load_dataset(data_file).copy()
 
     active_mask = (df["status"] == "active") | (df["resolved_datetime"].isna() & (df["status"] != "closed"))
@@ -862,6 +907,11 @@ def compute_station_loads(data_file: str) -> Dict[str, dict]:
         "[final_endpoints] station loads computed stations=%s duration=%.3fs",
         len(loads),
         time.perf_counter() - started_at,
+    )
+    logger.info(
+        "[final_endpoints] station loads RSS before=%.2f MB after=%.2f MB",
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
     )
     return loads
 
@@ -915,7 +965,7 @@ def compute_readiness_score(
 
 class LoadBalancer:
     def __init__(self, data_file: str = DATA_FILE):
-        self._tracker = tracker
+        self._tracker = _get_tracker()
         self.loads = None
         self._loads_lock = Lock()
 
@@ -927,11 +977,18 @@ class LoadBalancer:
             if self.loads is not None:
                 return
             started_at = time.perf_counter()
+            rss_before = _process_rss_mb()
+            logger.info("[final_endpoints] STEP 3 station load creation")
             logger.info("[LoadBalancer] Computing station loads from historical data …")
             self.loads = compute_station_loads(DATA_FILE)
             logger.info(
                 "[final_endpoints] load balancer initialized duration=%.3fs",
                 time.perf_counter() - started_at,
+            )
+            logger.info(
+                "[final_endpoints] station loads RSS before=%.2f MB after=%.2f MB",
+                rss_before if rss_before is not None else -1.0,
+                _process_rss_mb() if _process_rss_mb() is not None else -1.0,
             )
 
     def _candidate_stations(self, corridor: Optional[str] = None) -> List[str]:
@@ -1035,6 +1092,8 @@ FEATURE_COLS = [
 
 @lru_cache(maxsize=1)
 def _load_and_clean(path: str) -> pd.DataFrame:
+    rss_before = _process_rss_mb()
+    logger.info("[final_endpoints] STEP 5 dataframe load")
     df = pd.read_csv(path, encoding="latin1")
 
     df["start_dt"]    = pd.to_datetime(df["start_datetime"],   utc=True, errors="coerce")
@@ -1050,6 +1109,12 @@ def _load_and_clean(path: str) -> pd.DataFrame:
     for col in FEATURE_COLS:
         if col in df.columns:
             df[col] = df[col].fillna("unknown")
+
+    logger.info(
+        "[final_endpoints] dataframe RSS before=%.2f MB after=%.2f MB",
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+    )
 
     return df
 
@@ -1096,10 +1161,17 @@ def _save_artifacts(df, embeddings, index, out_dir=FAISS_INDEX_DIR):
 @lru_cache(maxsize=1)
 def _load_artifacts(out_dir=FAISS_INDEX_DIR):
     import faiss
+    rss_before = _process_rss_mb()
+    logger.info("[final_endpoints] STEP 6 FAISS load")
     index      = faiss.read_index(os.path.join(out_dir, "incidents.index"))
     # ← KEY OPTIMIZATION: mmap_mode="r" loads only on first access
     embeddings = np.load(os.path.join(out_dir, "embeddings.npy"), mmap_mode="r")
     df         = pd.read_pickle(os.path.join(out_dir, "incidents.pkl"))
+    logger.info(
+        "[final_endpoints] FAISS/dataframe RSS before=%.2f MB after=%.2f MB",
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+    )
     return df, embeddings, index
 
 
@@ -1159,7 +1231,15 @@ _historical_init_lock = Lock()
 @lru_cache(maxsize=1)
 def _load_sentence_transformer_model():
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(EMBEDDING_MODEL_NAME)
+    rss_before = _process_rss_mb()
+    logger.info("[final_endpoints] STEP 7 sentence transformer load")
+    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    logger.info(
+        "[final_endpoints] sentence transformer RSS before=%.2f MB after=%.2f MB",
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+    )
+    return model
 
 
 def _initialize_historical_cache() -> None:
@@ -1614,14 +1694,14 @@ def predict():
 @app.route("/stations", methods=["GET"])
 def list_stations():
     """GET /stations – list all stations with current resources."""
-    return jsonify(tracker.list_all_stations())
+    return jsonify(_get_tracker().list_all_stations())
 
 
 @app.route("/stations/<station>", methods=["GET"])
 def get_station(station: str):
     """GET /stations/<station> – resource snapshot."""
     try:
-        return jsonify(tracker.get_available_resources(station))
+        return jsonify(_get_tracker().get_available_resources(station))
     except ValueError as e:
         return _bad_request(str(e), 404)
 
@@ -1631,7 +1711,7 @@ def allocate(station: str):
     """POST /stations/<station>/allocate"""
     data = request.get_json(silent=True) or {}
     try:
-        result = tracker.allocate_resources(
+        result = _get_tracker().allocate_resources(
             station,
             officers   = _int_param(data.get("officers")),
             vehicles   = _int_param(data.get("vehicles")),
@@ -1648,7 +1728,7 @@ def release(station: str):
     """POST /stations/<station>/release"""
     data = request.get_json(silent=True) or {}
     try:
-        result = tracker.release_resources(
+        result = _get_tracker().release_resources(
             station,
             officers   = _int_param(data.get("officers")),
             vehicles   = _int_param(data.get("vehicles")),
@@ -1797,7 +1877,7 @@ def station_readiness():
 
         if station_param:
             single_started_at = time.perf_counter()
-            result = compute_readiness_score(station_param, tracker, loads)
+            result = compute_readiness_score(station_param, _get_tracker(), loads)
             logger.info(
                 "[final_endpoints:station-readiness] single-station duration=%.3fs",
                 time.perf_counter() - single_started_at,
@@ -1806,7 +1886,7 @@ def station_readiness():
 
         # ── All-stations path: batch fetch ──────────────────────────────────
         batch_started_at = time.perf_counter()
-        all_resources = tracker.get_all_resources_batch()
+        all_resources = _get_tracker().get_all_resources_batch()
 
         import math
         results = []
