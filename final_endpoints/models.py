@@ -19,11 +19,13 @@ import uuid
 import re
 import traceback
 import time
+import tracemalloc
 from functools import lru_cache
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from threading import Lock
 
 from flask import Flask, request, jsonify
 try:
@@ -63,6 +65,53 @@ BACKEND_API_URL = os.getenv(
     os.getenv("NEXT_PUBLIC_BACKEND_API_URL", "http://127.0.0.1:5001"),
 )
 
+
+def _process_rss_mb() -> Optional[float]:
+    """Best-effort resident set size for request-time memory profiling."""
+    try:
+        import psutil
+
+        return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+    except Exception:
+        try:
+            import resource
+
+            rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return rss_kb / 1024.0
+        except Exception:
+            return None
+
+
+def _log_memory_delta(
+    label: str,
+    started_at: float,
+    rss_before: Optional[float],
+    snapshot_before,
+) -> None:
+    rss_after = _process_rss_mb()
+    parts = [
+        f"[final_endpoints] {label} duration={time.perf_counter() - started_at:.3f}s",
+    ]
+    if rss_before is not None and rss_after is not None:
+        parts.append(
+            f"rss_before={rss_before:.1f}MB rss_after={rss_after:.1f}MB delta={rss_after - rss_before:.1f}MB"
+        )
+
+    if snapshot_before is not None and tracemalloc.is_tracing():
+        snapshot_after = tracemalloc.take_snapshot()
+        top_stats = snapshot_after.compare_to(snapshot_before, "lineno")[:5]
+        if top_stats:
+            parts.append(
+                "largest_allocations="
+                + " | ".join(
+                    f"{stat.traceback[0].filename}:{stat.traceback[0].lineno} "
+                    f"{stat.size_diff / 1024:.1f}KiB"
+                    for stat in top_stats
+                )
+            )
+
+    logger.info(" ".join(parts))
+
 # ─────────────────────────────────────────────────────────────────────────────
 # FLASK APP
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +129,9 @@ if CORS is not None:
         supports_credentials=True,
     )
 logger = logging.getLogger(__name__)
+
+if not tracemalloc.is_tracing():
+    tracemalloc.start(25)
 
 _ALLOWED_ORIGIN_PATTERNS = (
     re.compile(r"^https://.*\.pages\.dev$"),
@@ -288,14 +340,38 @@ class DBWrapper:
     """
     def __init__(self):
         self._pool = _get_pool()
-        self.conn = self._pool.getconn()
+        self.conn = self._checkout_connection()
+
+    def _checkout_connection(self):
+        conn = self._pool.getconn()
+        if getattr(conn, "closed", 1):
+            try:
+                self._pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = self._pool.getconn()
+        return conn
+
+    def _reconnect(self):
+        try:
+            self._pool.putconn(self.conn, close=True)
+        except Exception:
+            pass
+        self.conn = self._checkout_connection()
 
     def execute(self, query, params=()):
-        cur = self.conn.cursor()
-        if query:
-            # Translate SQLite-style ? placeholders to psycopg2 %s
-            cur.execute(query.replace('?', '%s'), params)
-        return cur
+        try:
+            cur = self.conn.cursor()
+            if query:
+                # Translate SQLite-style ? placeholders to psycopg2 %s
+                cur.execute(query.replace('?', '%s'), params)
+            return cur
+        except psycopg2.Error:
+            self._reconnect()
+            cur = self.conn.cursor()
+            if query:
+                cur.execute(query.replace('?', '%s'), params)
+            return cur
 
     def fetchall_query(self, query, params=()):
         """Execute query and return all rows, closing cursor automatically."""
@@ -313,7 +389,10 @@ class DBWrapper:
     def close(self):
         """Return this connection to the pool (NOT psycopg2 close)."""
         try:
-            self._pool.putconn(self.conn)
+            if getattr(self.conn, "closed", 1):
+                self._pool.putconn(self.conn, close=True)
+            else:
+                self._pool.putconn(self.conn)
         except Exception:
             pass
 
@@ -365,6 +444,19 @@ def _store_via_backend_api(payload: dict, response: dict) -> tuple[str, str]:
         return incident_id, prediction_id
 
 
+def _connect_backend_db():
+    """Create a fresh backend DB connection with a single retry."""
+    last_exc = None
+    for attempt in range(2):
+        try:
+            return psycopg2.connect(BACKEND_DATABASE_URL, connect_timeout=3)
+        except psycopg2.Error as exc:
+            last_exc = exc
+            if attempt == 0:
+                time.sleep(0.1)
+    raise last_exc
+
+
 def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
     try:
         return _store_via_backend_api(payload, response)
@@ -379,7 +471,7 @@ def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
 
     conn = None
     try:
-        conn = psycopg2.connect(BACKEND_DATABASE_URL, connect_timeout=3)
+        conn = _connect_backend_db()
         conn.autocommit = False
         cur = conn.cursor()
         incident_id = _backend_generate_incident_id(cur)
@@ -494,7 +586,7 @@ def _mark_backend_incident_in_progress(incident_id: str) -> bool:
     """Update the backend incident row to IN_PROGRESS if it exists."""
     conn = None
     try:
-        conn = psycopg2.connect(BACKEND_DATABASE_URL, connect_timeout=3)
+        conn = _connect_backend_db()
         conn.autocommit = False
         cur = conn.cursor()
         cur.execute(
@@ -781,6 +873,7 @@ tracker = ResourceTracker()
 RESOURCE_WEIGHTS = {"officers": 0.5, "vehicles": 0.3, "tow_trucks": 0.2}
 
 
+@lru_cache(maxsize=1)
 def _load_dataset(data_file: str) -> pd.DataFrame:
     started_at = time.perf_counter()
     df = pd.read_csv(data_file, encoding="latin1")
@@ -1005,6 +1098,7 @@ FEATURE_COLS = [
 ]
 
 
+@lru_cache(maxsize=1)
 def _load_and_clean(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, encoding="latin1")
 
@@ -1068,26 +1162,54 @@ def _save_artifacts(df, embeddings, index, out_dir=FAISS_INDEX_DIR):
     print(f"[EmbeddingPipeline] Artifacts saved -> {out_dir}/")
 
 
+@lru_cache(maxsize=1)
 def _load_artifacts(out_dir=FAISS_INDEX_DIR):
     import faiss
     index      = faiss.read_index(os.path.join(out_dir, "incidents.index"))
-    embeddings = np.load(os.path.join(out_dir, "embeddings.npy"))
+    embeddings = np.load(os.path.join(out_dir, "embeddings.npy"), mmap_mode="r")
     df         = pd.read_pickle(os.path.join(out_dir, "incidents.pkl"))
     return df, embeddings, index
 
 
 def run_embedding_pipeline(data_file=DATA_FILE, out_dir=FAISS_INDEX_DIR, force=False):
     """Build or load the FAISS index and incident dataframe."""
+    started_at = time.perf_counter()
     if not force and os.path.exists(os.path.join(out_dir, "incidents.index")):
         print("[EmbeddingPipeline] Index already exists – skipping build.")
+        logger.info(
+            "[final_endpoints] embedding pipeline load_only duration=%.3fs",
+            time.perf_counter() - started_at,
+        )
         return _load_artifacts(out_dir)
 
-    from sentence_transformers import SentenceTransformer
+    csv_started_at = time.perf_counter()
     df    = _load_and_clean(data_file)
-    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+    csv_elapsed = time.perf_counter() - csv_started_at
+
+    model_started_at = time.perf_counter()
+    model = _load_sentence_transformer_model()
+    model_elapsed = time.perf_counter() - model_started_at
+
+    embed_started_at = time.perf_counter()
     embs  = _build_embeddings(df, model)
+    embed_elapsed = time.perf_counter() - embed_started_at
+
+    index_started_at = time.perf_counter()
     index = _build_faiss_index(embs)
+    index_elapsed = time.perf_counter() - index_started_at
+
+    save_started_at = time.perf_counter()
     _save_artifacts(df, embs, index, out_dir)
+    save_elapsed = time.perf_counter() - save_started_at
+    logger.info(
+        "[final_endpoints] embedding pipeline csv=%.3fs model=%.3fs embed=%.3fs index=%.3fs save=%.3fs total=%.3fs",
+        csv_elapsed,
+        model_elapsed,
+        embed_elapsed,
+        index_elapsed,
+        save_elapsed,
+        time.perf_counter() - started_at,
+    )
     return df, embs, index
 
 
@@ -1096,24 +1218,71 @@ def run_embedding_pipeline(data_file=DATA_FILE, out_dir=FAISS_INDEX_DIR, force=F
 # Lazy-loaded to avoid slowing Flask startup
 # ═════════════════════════════════════════════════════════════════════════════
 
-_hist_df: Optional[pd.DataFrame]    = None
-_hist_index                          = None
-_hist_model                          = None
+_hist_df: Optional[pd.DataFrame] = None
+_hist_embeddings = None
+_hist_index = None
+_hist_model = None
+_historical_init_lock = Lock()
+
+
+@lru_cache(maxsize=1)
+def _load_sentence_transformer_model():
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(EMBEDDING_MODEL_NAME)
+
+
+def _initialize_historical_cache() -> None:
+    """Load FAISS artifacts and the embedding model once per worker."""
+    global _hist_df, _hist_embeddings, _hist_index, _hist_model
+    if _hist_df is not None and _hist_index is not None and _hist_model is not None:
+        return
+
+    with _historical_init_lock:
+        if _hist_df is not None and _hist_index is not None and _hist_model is not None:
+            return
+
+        started_at = time.perf_counter()
+        rss_before = _process_rss_mb()
+        snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
+
+        artifacts_started_at = time.perf_counter()
+        _hist_df, _hist_embeddings, _hist_index = run_embedding_pipeline(out_dir=FAISS_INDEX_DIR)
+        artifacts_elapsed = time.perf_counter() - artifacts_started_at
+
+        model_started_at = time.perf_counter()
+        _hist_model = _load_sentence_transformer_model()
+        model_elapsed = time.perf_counter() - model_started_at
+
+        logger.info(
+            "[final_endpoints] historical init artifacts=%.3fs model=%.3fs rows=%s",
+            artifacts_elapsed,
+            model_elapsed,
+            len(_hist_df),
+        )
+
+        _log_memory_delta(
+            "historical init",
+            started_at,
+            rss_before,
+            snapshot_before,
+        )
 
 
 def _load_historical():
     """Lazy-load FAISS index and sentence-transformer model on first use."""
-    global _hist_df, _hist_index, _hist_model
-    if _hist_df is None:
-        started_at = time.perf_counter()
-        from sentence_transformers import SentenceTransformer
-        _hist_df, _, _hist_index = run_embedding_pipeline(out_dir=FAISS_INDEX_DIR)
-        _hist_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-        logger.info(
-            "[final_endpoints] historical artifacts loaded rows=%s duration=%.3fs",
-            len(_hist_df),
-            time.perf_counter() - started_at,
-        )
+    _initialize_historical_cache()
+    if _hist_df is None or _hist_index is None or _hist_model is None:
+        raise RuntimeError("Historical search artifacts are unavailable")
+
+
+try:
+    _initialize_historical_cache()
+except Exception as exc:
+    logger.warning(
+        "[final_endpoints] historical cache warmup deferred: %s",
+        exc,
+    )
 
 
 def search_similar_incidents(
@@ -1132,6 +1301,8 @@ def search_similar_incidents(
                     most_common_outcome, total_similar
     """
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
+    snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
     _load_historical()
     load_elapsed = time.perf_counter() - started_at
 
@@ -1201,6 +1372,12 @@ def search_similar_incidents(
         time.perf_counter() - started_at,
         top_k,
     )
+    _log_memory_delta(
+        "historical-search",
+        started_at,
+        rss_before,
+        snapshot_before,
+    )
     return result
 
 
@@ -1234,6 +1411,8 @@ def dispatch(
     Returns a unified response dict.
     """
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
+    snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
     lb = _get_balancer()
 
     # Step 1 – Historical context
@@ -1295,6 +1474,12 @@ def dispatch(
     logger.info(
         "[final_endpoints] dispatch total duration=%.3fs",
         time.perf_counter() - started_at,
+    )
+    _log_memory_delta(
+        "dispatch",
+        started_at,
+        rss_before,
+        snapshot_before,
     )
     return {
         "dispatch": {
@@ -1579,6 +1764,8 @@ def historical_search():
     Body (JSON): { "query": "Vehicle Breakdown Tumkur Road", "top_k": 20 }
     """
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
+    snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
     body_size = len(request.get_data(cache=True) or b"")
     logger.info(
         "[final_endpoints:historical-search] -> %s %s body_bytes=%s",
@@ -1586,28 +1773,40 @@ def historical_search():
         request.path,
         body_size,
     )
+    response = None
     try:
         data = request.get_json()
         query = data.get("query", "")
         top_k = _int_param(data.get("top_k"), default=20)
 
         if not query:
-            return _log_endpoint_response(
+            response = _log_endpoint_response(
                 "historical-search",
                 started_at,
                 _bad_request("'query' field is required."),
             )
+            return response
 
         result = search_similar_incidents(query, top_k=top_k)
-        return _log_endpoint_response("historical-search", started_at, jsonify(result))
+        response = _log_endpoint_response("historical-search", started_at, jsonify(result))
+        return response
 
     except Exception as e:
         traceback.print_exc()
-        return _log_endpoint_response(
+        response = _log_endpoint_response(
             "historical-search",
             started_at,
             (jsonify({"success": False, "error": str(e)}), 500),
         )
+        return response
+    finally:
+        if response is not None:
+            _log_memory_delta(
+                "historical-search endpoint",
+                started_at,
+                rss_before,
+                snapshot_before,
+            )
 
 
 # ── Dispatch Endpoint ────────────────────────────────────────────────────────
@@ -1625,6 +1824,8 @@ def dispatch_endpoint():
     }
     """
     started_at = time.perf_counter()
+    rss_before = _process_rss_mb()
+    snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
     body_size = len(request.get_data(cache=True) or b"")
     logger.info(
         "[final_endpoints:dispatch] -> %s %s body_bytes=%s",
@@ -1632,16 +1833,18 @@ def dispatch_endpoint():
         request.path,
         body_size,
     )
+    response = None
     try:
         data = request.get_json(silent=True) or {}
         incident_text = data.get("incident_text", "")
 
         if not incident_text:
-            return _log_endpoint_response(
+            response = _log_endpoint_response(
                 "dispatch",
                 started_at,
                 _bad_request("'incident_text' field is required."),
             )
+            return response
 
         result = dispatch(
             incident_text=incident_text,
@@ -1656,15 +1859,25 @@ def dispatch_endpoint():
             updated = _mark_backend_incident_in_progress(incident_id)
             result["dispatch"]["incident_id"] = incident_id
             result["dispatch"]["incident_status_updated"] = updated
-        return _log_endpoint_response("dispatch", started_at, jsonify(result))
+        response = _log_endpoint_response("dispatch", started_at, jsonify(result))
+        return response
 
     except Exception as e:
         traceback.print_exc()
-        return _log_endpoint_response(
+        response = _log_endpoint_response(
             "dispatch",
             started_at,
             (jsonify({"success": False, "error": str(e)}), 500),
         )
+        return response
+    finally:
+        if response is not None:
+            _log_memory_delta(
+                "dispatch endpoint",
+                started_at,
+                rss_before,
+                snapshot_before,
+            )
 
 
 # ── Station Readiness Endpoint ───────────────────────────────────────────────
