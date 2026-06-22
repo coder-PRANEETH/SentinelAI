@@ -43,7 +43,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import psycopg2
-
+from safe_harbour import KerbSafeHarborIdentifier
 # ─────────────────────────────────────────────────────────────────────────────
 # PATH RESOLUTION
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1464,39 +1464,108 @@ def dispatch(
 # SECTION 9 — BENGALURU TRAFFIC NETWORK GRAPH (CORRIDOR RIPPLE SIMULATOR)
 # ═════════════════════════════════════════════════════════════════════════════
 
+# ═════════════════════════════════════════════════════════════════════════════
+# SECTION 9 — BENGALURU TRAFFIC NETWORK GRAPH (HIGH-DENSITY ENRICHED GRAPH)
+# ═════════════════════════════════════════════════════════════════════════════
+
 BENGALURU_NODES = {
-    "Tumkur Road": {"lat": 13.0380, "lon": 77.5120},
-    "Peenya Junction": {"lat": 13.0285, "lon": 77.5186},
-    "Yeshwanthpur": {"lat": 13.0206, "lon": 77.5560},
-    "Hebbal": {"lat": 13.0354, "lon": 77.5978},
-    "Outer Ring Road": {"lat": 12.9716, "lon": 77.6410},
-    "Marathahalli": {"lat": 12.9562, "lon": 77.7011},
-    "Silk Board": {"lat": 12.9176, "lon": 77.6244},
-    "Electronic City": {"lat": 12.8452, "lon": 77.6602},
+    # --- CENTRAL HUB & CONNECTIONS ---
+    "Majestic": {"lat": 12.9779, "lon": 77.5724},
+    "Corporation Circle": {"lat": 12.9680, "lon": 77.5890},
+    "Hudson Circle": {"lat": 12.9664, "lon": 77.5880},
+    "Town Hall": {"lat": 12.9649, "lon": 77.5852},
+    "Richmond Circle": {"lat": 12.9634, "lon": 77.5976},
+    "Minerva Circle": {"lat": 12.9575, "lon": 77.5732},
+    "Dairy Circle": {"lat": 12.9428, "lon": 77.6012},
+
+    # --- NORTH CORRIDOR (Bellary Road & ORR North) ---
+    "Mekhri Circle": {"lat": 13.0076, "lon": 77.5896},
+    "Hebbal": {"lat": 13.0358, "lon": 77.5970},
+    "Sanjay Nagar": {"lat": 13.0305, "lon": 77.5821},
+    "RT Nagar": {"lat": 13.0185, "lon": 77.5932},
+    "Ganganagar Circle": {"lat": 13.0122, "lon": 77.5910},
+    "Nagavara Junction": {"lat": 13.0416, "lon": 77.6244},
+    "Manyata Tech Park": {"lat": 13.0441, "lon": 77.6225},
+
+    # --- EAST CORRIDOR (Old Madras Road, ITPL & ORR East) ---
     "KR Puram": {"lat": 13.0110, "lon": 77.7040},
+    "Tin Factory": {"lat": 13.0163, "lon": 77.6758},
+    "Indiranagar 100ft Rd": {"lat": 12.9647, "lon": 77.6382},
+    "HAL Old Airport Road": {"lat": 12.9592, "lon": 77.6641},
+    "Marathahalli": {"lat": 12.9562, "lon": 77.7011},
+    "Whitefield": {"lat": 12.9866, "lon": 77.7341},
+
+    # --- SOUTH-EAST CORRIDOR (Outer Ring Road South) ---
+    "Silk Board": {"lat": 12.9176, "lon": 77.6244},
+    "HSR Layout": {"lat": 12.9128, "lon": 77.6385},
+    "Agara Junction": {"lat": 12.9261, "lon": 77.6482},
+    "Iblur Junction": {"lat": 12.9213, "lon": 77.6715},
+    "Bellandur": {"lat": 12.9304, "lon": 77.6784},
+    "Electronic City": {"lat": 12.8452, "lon": 77.6602},
+
+    # --- WEST & NORTH-WEST CORRIDOR (Tumkur Road & Mysore Road) ---
+    "Yeshwanthpur": {"lat": 13.0206, "lon": 77.5560},
+    "Goraguntepalya": {"lat": 13.0286, "lon": 77.5385},
+    "Peenya Junction": {"lat": 13.0285, "lon": 77.5186},
+    "Tumkur Road": {"lat": 13.0380, "lon": 77.5120},
+    "Jalahalli Cross": {"lat": 13.0378, "lon": 77.5022},
     "Mysore Road": {"lat": 12.9461, "lon": 77.5255},
-    "Majestic": {"lat": 12.9766, "lon": 77.5712}
+    "Mathikere": {"lat": 13.0322, "lon": 77.5585}
 }
 
 BENGALURU_EDGES = [
-    ("Tumkur Road", "Peenya Junction"),
-    ("Peenya Junction", "Yeshwanthpur"),
-    ("Yeshwanthpur", "Hebbal"),
-    ("Yeshwanthpur", "Majestic"),
-    ("Hebbal", "KR Puram"),
-    ("KR Puram", "Marathahalli"),
-    ("Marathahalli", "Outer Ring Road"),
-    ("Outer Ring Road", "Silk Board"),
-    ("Silk Board", "Electronic City"),
+    # Central Core Loops
+    ("Majestic", "Corporation Circle"),
+    ("Majestic", "Mekhri Circle"),
+    ("Majestic", "Yeshwanthpur"),
     ("Majestic", "Mysore Road"),
-    ("Mysore Road", "Silk Board"),
-    ("Majestic", "Hebbal")
+    ("Corporation Circle", "Hudson Circle"),
+    ("Hudson Circle", "Town Hall"),
+    ("Hudson Circle", "Richmond Circle"),
+    ("Town Hall", "Minerva Circle"),
+    ("Minerva Circle", "Dairy Circle"),
+    
+    # West Corridor & Tumkur Road Spine
+    ("Goraguntepalya", "Yeshwanthpur"),
+    ("Goraguntepalya", "Peenya Junction"),
+    ("Peenya Junction", "Tumkur Road"),
+    ("Tumkur Road", "Jalahalli Cross"),
+    ("Yeshwanthpur", "Mathikere"),
+    ("Mathikere", "Mekhri Circle"),
+
+    # North Corridor Spine (Bellary Road & NH44)
+    ("Mekhri Circle", "Ganganagar Circle"),
+    ("Ganganagar Circle", "RT Nagar"),
+    ("RT Nagar", "Sanjay Nagar"),
+    ("Mekhri Circle", "Hebbal"),
+    ("Hebbal", "Nagavara Junction"),
+    ("Nagavara Junction", "Manyata Tech Park"),
+    ("Nagavara Junction", "KR Puram"),
+
+    # East Corridor Spine (Old Madras Rd & ITPL)
+    ("KR Puram", "Tin Factory"),
+    ("Tin Factory", "Indiranagar 100ft Rd"),
+    ("Indiranagar 100ft Rd", "HAL Old Airport Road"),
+    ("HAL Old Airport Road", "Marathahalli"),
+    ("Tin Factory", "Marathahalli"),
+    ("Marathahalli", "Whitefield"),
+
+    # South-East Ring Road Loop (ORR South)
+    ("Marathahalli", "Bellandur"),
+    ("Bellandur", "Iblur Junction"),
+    ("Iblur Junction", "Agara Junction"),
+    ("Agara Junction", "HSR Layout"),
+    ("HSR Layout", "Silk Board"),
+    ("Silk Board", "Electronic City"),
+    ("Silk Board", "Dairy Circle"),
+    ("Mysore Road", "Silk Board")
 ]
 
 traffic_graph = nx.Graph()
 for node, coords in BENGALURU_NODES.items():
     traffic_graph.add_node(node, lat=coords["lat"], lon=coords["lon"])
 traffic_graph.add_edges_from(BENGALURU_EDGES)
+
 
 
 def run_ripple_bfs(start_node: str, max_depth: int) -> list:
@@ -1928,6 +1997,61 @@ def simulate_ripple():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFE HARBOR SINGLETON (LAZY INITIALIZATION)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_harbor_identifier = None
+_harbor_lock = Lock()
+
+def _get_harbor_identifier() -> KerbSafeHarborIdentifier:
+    """Lazily load and build the DBSCAN Safe Harbor clusters on first access."""
+    global _harbor_identifier
+    if _harbor_identifier is None:
+        with _harbor_lock:
+            if _harbor_identifier is None:
+                # DATA_FILE is the path to your Astram CSV already defined in models.py
+                _harbor_identifier = KerbSafeHarborIdentifier(DATA_FILE)
+    return _harbor_identifier
+
+@app.route("/recommend-safe-harbor", methods=["POST"])
+def recommend_safe_harbor():
+    """POST /recommend-safe-harbor - Finds nearest physical push harbor."""
+    try:
+        data = request.get_json(silent=True) or {}
+        lat_val = data.get("latitude")
+        lon_val = data.get("longitude")
+
+        if lat_val is None or lon_val is None:
+            return jsonify({"error": "Fields 'latitude' and 'longitude' are required."}), 400
+
+        lat = float(lat_val)
+        lon = float(lon_val)
+
+        # Retrieve the lazy-loaded instance
+        identifier = _get_harbor_identifier()
+        recommendation = identifier.find_nearest_harbor(lat, lon)
+
+        if not recommendation:
+            return jsonify({
+                "found": False,
+                "message": "No historical safe harbor within 400 meters of this coordinate."
+            }), 200
+
+        return jsonify({
+            "found": True,
+            "recommendation": recommendation
+        }), 200
+
+    except ValueError:
+        return jsonify({"error": "Coordinates must be numeric floating points."}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RUN SERVER
