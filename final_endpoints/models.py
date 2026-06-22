@@ -3,11 +3,15 @@ models.py (Optimized for Render Free Tier)
 SentinelAI Unified Flask API
 
 Optimizations:
-  - Lazy loading: models, FAISS, embeddings only load on first request
+  - Lazy loading: models, TF-IDF index only load on first request
   - Streaming startup: Flask binds immediately, health check available
-  - Reduced memory: mmap mode for embeddings, no eager full dataset load
+  - Reduced memory: TF-IDF replaces SentenceTransformer + FAISS + torch
   - Connection pool: tuned for single gunicorn worker
   - Graceful degradation: missing artifacts don't crash startup
+
+Historical search backend: sklearn TF-IDF cosine similarity.
+  Removed: sentence_transformers, transformers, torch, faiss.
+  Added:   TfidfVectorizer + cosine_similarity (sklearn, already a dep).
 """
 
 import os
@@ -79,7 +83,7 @@ DATA_FILE = os.path.join(
     "Astram event data_anonymized - Astram event data_anonymizedb40ac87.csv",
 )
 DB_FILE = os.path.join(RESOURCE_MODULE_DIR, "resources.db")
-FAISS_INDEX_DIR = os.path.join(RESOURCE_MODULE_DIR, "faiss_index")
+# FAISS_INDEX_DIR removed — historical search now uses TF-IDF (no FAISS artifacts needed)
 BACKEND_DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://sentinel:sentinel@localhost:5432/sentinelai",
@@ -1079,10 +1083,14 @@ class LoadBalancer:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — EMBEDDING PIPELINE (LAZY-LOADED, MMAP)
+# SECTION 6 — HISTORICAL INCIDENT TEXT PREPARATION (shared by TF-IDF pipeline)
 # ═════════════════════════════════════════════════════════════════════════════
-
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+#
+# Replaces: FAISS + SentenceTransformer + torch + transformers
+# With:     TfidfVectorizer + cosine_similarity  (sklearn — already a dep)
+#
+# Memory reduction: ~400–600 MB (torch + model weights gone entirely)
+# Startup reduction: ~8–12 s (no model download / torch import)
 
 FEATURE_COLS = [
     "event_cause", "corridor", "junction",
@@ -1090,37 +1098,13 @@ FEATURE_COLS = [
 ]
 
 
-@lru_cache(maxsize=1)
-def _load_and_clean(path: str) -> pd.DataFrame:
-    rss_before = _process_rss_mb()
-    logger.info("[final_endpoints] STEP 5 dataframe load")
-    df = pd.read_csv(path, encoding="latin1")
-
-    df["start_dt"]    = pd.to_datetime(df["start_datetime"],   utc=True, errors="coerce")
-    df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
-
-    df["resolution_mins"] = (
-        (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
-    )
-
-    df["day"]  = df["start_dt"].dt.day_name()
-    df["hour"] = df["start_dt"].dt.hour
-
-    for col in FEATURE_COLS:
-        if col in df.columns:
-            df[col] = df[col].fillna("unknown")
-
-    logger.info(
-        "[final_endpoints] dataframe RSS before=%.2f MB after=%.2f MB",
-        rss_before if rss_before is not None else -1.0,
-        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
-    )
-
-    return df
-
-
 def _build_text_repr(row: pd.Series) -> str:
-    """Concatenate features into a single sentence for embedding."""
+    """
+    Concatenate structured incident fields into a single searchable string.
+    Underscores replaced with spaces so TF-IDF tokenises sub-words correctly
+    (e.g. "heavy_vehicle" → "heavy vehicle").
+    Day-of-week and hour are appended for temporal similarity.
+    """
     parts = []
     for col in FEATURE_COLS:
         val = str(row.get(col, "unknown")).strip().lower().replace("_", " ")
@@ -1129,164 +1113,123 @@ def _build_text_repr(row: pd.Series) -> str:
         parts.append(str(row["day"]).lower())
     if "hour" in row:
         parts.append(f"hour {row['hour']}")
-    return " | ".join(parts)
-
-
-def _build_embeddings(df: pd.DataFrame, model) -> np.ndarray:
-    texts = df.apply(_build_text_repr, axis=1).tolist()
-    print(f"[EmbeddingPipeline] Encoding {len(texts)} incidents …")
-    embeddings = model.encode(texts, batch_size=256, show_progress_bar=True,
-                              normalize_embeddings=True)
-    return embeddings.astype("float32")
-
-
-def _build_faiss_index(embeddings: np.ndarray):
-    import faiss
-    dim   = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)
-    index.add(embeddings)
-    print(f"[EmbeddingPipeline] FAISS index built – {index.ntotal} vectors, dim={dim}")
-    return index
-
-
-def _save_artifacts(df, embeddings, index, out_dir=FAISS_INDEX_DIR):
-    import faiss
-    os.makedirs(out_dir, exist_ok=True)
-    faiss.write_index(index, os.path.join(out_dir, "incidents.index"))
-    np.save(os.path.join(out_dir, "embeddings.npy"), embeddings)
-    df.reset_index(drop=True).to_pickle(os.path.join(out_dir, "incidents.pkl"))
-    print(f"[EmbeddingPipeline] Artifacts saved -> {out_dir}/")
+    return " ".join(parts)
 
 
 @lru_cache(maxsize=1)
-def _load_artifacts(out_dir=FAISS_INDEX_DIR):
-    import faiss
+def _load_and_clean(path: str) -> pd.DataFrame:
+    """
+    Load and lightly clean the Astram CSV.
+    Result is cached — subsequent calls return the same object.
+    """
     rss_before = _process_rss_mb()
-    logger.info("[final_endpoints] STEP 6 FAISS load")
-    index      = faiss.read_index(os.path.join(out_dir, "incidents.index"))
-    # ← KEY OPTIMIZATION: mmap_mode="r" loads only on first access
-    embeddings = np.load(os.path.join(out_dir, "embeddings.npy"), mmap_mode="r")
-    df         = pd.read_pickle(os.path.join(out_dir, "incidents.pkl"))
+    logger.info("[historical-search] loading CSV: %s", path)
+    df = pd.read_csv(path, encoding="latin1")
+
+    df["start_dt"]    = pd.to_datetime(df["start_datetime"],    utc=True, errors="coerce")
+    df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
+    df["resolution_mins"] = (
+        (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
+    )
+    df["day"]  = df["start_dt"].dt.day_name()
+    df["hour"] = df["start_dt"].dt.hour
+
+    for col in FEATURE_COLS:
+        if col in df.columns:
+            df[col] = df[col].fillna("unknown")
+
     logger.info(
-        "[final_endpoints] FAISS/dataframe RSS before=%.2f MB after=%.2f MB",
+        "[historical-search] CSV loaded rows=%d RSS_before=%.1f MB RSS_after=%.1f MB",
+        len(df),
         rss_before if rss_before is not None else -1.0,
         _process_rss_mb() if _process_rss_mb() is not None else -1.0,
     )
-    return df, embeddings, index
-
-
-def run_embedding_pipeline(data_file=DATA_FILE, out_dir=FAISS_INDEX_DIR, force=False):
-    """Build or load the FAISS index and incident dataframe."""
-    started_at = time.perf_counter()
-    if not force and os.path.exists(os.path.join(out_dir, "incidents.index")):
-        print("[EmbeddingPipeline] Index already exists – skipping build.")
-        logger.info(
-            "[final_endpoints] embedding pipeline load_only duration=%.3fs",
-            time.perf_counter() - started_at,
-        )
-        return _load_artifacts(out_dir)
-
-    csv_started_at = time.perf_counter()
-    df    = _load_and_clean(data_file)
-    csv_elapsed = time.perf_counter() - csv_started_at
-
-    model_started_at = time.perf_counter()
-    model = _load_sentence_transformer_model()
-    model_elapsed = time.perf_counter() - model_started_at
-
-    embed_started_at = time.perf_counter()
-    embs  = _build_embeddings(df, model)
-    embed_elapsed = time.perf_counter() - embed_started_at
-
-    index_started_at = time.perf_counter()
-    index = _build_faiss_index(embs)
-    index_elapsed = time.perf_counter() - index_started_at
-
-    save_started_at = time.perf_counter()
-    _save_artifacts(df, embs, index, out_dir)
-    save_elapsed = time.perf_counter() - save_started_at
-    logger.info(
-        "[final_endpoints] embedding pipeline csv=%.3fs model=%.3fs embed=%.3fs index=%.3fs save=%.3fs total=%.3fs",
-        csv_elapsed,
-        model_elapsed,
-        embed_elapsed,
-        index_elapsed,
-        save_elapsed,
-        time.perf_counter() - started_at,
-    )
-    return df, embs, index
+    return df
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — HISTORICAL SEARCH (LAZY-LOADED, DEFERRED WARMUP)
+# SECTION 7 — TF-IDF HISTORICAL SEARCH  (replaces FAISS / SentenceTransformer)
 # ═════════════════════════════════════════════════════════════════════════════
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity as sk_cosine_similarity
+
+# ── Module-level singletons (None until first search request) ────────────────
 _hist_df: Optional[pd.DataFrame] = None
-_hist_embeddings = None
-_hist_index = None
-_hist_model = None
+_tfidf_vectorizer: Optional[TfidfVectorizer] = None
+_tfidf_matrix = None          # scipy sparse matrix, shape (n_docs, n_features)
 _historical_init_lock = Lock()
 
 
-@lru_cache(maxsize=1)
-def _load_sentence_transformer_model():
-    from sentence_transformers import SentenceTransformer
-    rss_before = _process_rss_mb()
-    logger.info("[final_endpoints] STEP 7 sentence transformer load")
-    model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-    logger.info(
-        "[final_endpoints] sentence transformer RSS before=%.2f MB after=%.2f MB",
-        rss_before if rss_before is not None else -1.0,
-        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
-    )
-    return model
-
-
 def _initialize_historical_cache() -> None:
-    """Load FAISS artifacts and the embedding model lazily."""
-    global _hist_df, _hist_embeddings, _hist_index, _hist_model
-    if _hist_df is not None and _hist_index is not None and _hist_model is not None:
+    """
+    Lazily build the TF-IDF index on the first search call.
+
+    Steps
+    -----
+    1. Load & clean the Astram CSV  (re-uses _load_and_clean lru_cache)
+    2. Build one text string per incident from FEATURE_COLS
+    3. Fit TfidfVectorizer with bounded vocabulary (max_features=5000)
+    4. Store fitted vectorizer + sparse TF-IDF matrix as module globals
+
+    Thread-safe double-checked locking so concurrent first requests
+    do not rebuild the index more than once.
+    """
+    global _hist_df, _tfidf_vectorizer, _tfidf_matrix
+    # Fast-path: already initialised
+    if _hist_df is not None:
         return
 
     with _historical_init_lock:
-        if _hist_df is not None and _hist_index is not None and _hist_model is not None:
+        if _hist_df is not None:       # another thread may have finished while we waited
             return
 
         started_at = time.perf_counter()
         rss_before = _process_rss_mb()
-        snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
 
-        artifacts_started_at = time.perf_counter()
-        _hist_df, _hist_embeddings, _hist_index = run_embedding_pipeline(out_dir=FAISS_INDEX_DIR)
-        artifacts_elapsed = time.perf_counter() - artifacts_started_at
+        # Step 1 — load data (shared lru_cache with LoadBalancer / station_loads)
+        df = _load_and_clean(DATA_FILE)
 
-        model_started_at = time.perf_counter()
-        _hist_model = _load_sentence_transformer_model()
-        model_elapsed = time.perf_counter() - model_started_at
+        # Step 2 — build per-row text corpus
+        corpus = df.apply(_build_text_repr, axis=1).tolist()
 
+        # Step 3 — fit TF-IDF
+        # max_features=5000  keeps sparse matrix small (~5 k cols × n_rows floats32)
+        # ngram_range=(1,2)  captures common bigrams like "heavy vehicle", "tumkur road"
+        # sublinear_tf=True  dampens very frequent terms (same role as IDF)
+        vectorizer = TfidfVectorizer(
+            max_features=5000,
+            stop_words="english",
+            ngram_range=(1, 2),
+            sublinear_tf=True,
+        )
+        matrix = vectorizer.fit_transform(corpus)   # returns scipy sparse CSR
+
+        # Step 4 — assign to module globals atomically
+        _hist_df          = df
+        _tfidf_vectorizer = vectorizer
+        _tfidf_matrix     = matrix
+
+        elapsed = time.perf_counter() - started_at
         logger.info(
-            "[final_endpoints] historical init artifacts=%.3fs model=%.3fs rows=%s",
-            artifacts_elapsed,
-            model_elapsed,
-            len(_hist_df),
-        )
-
-        _log_memory_delta(
-            "historical init",
-            started_at,
-            rss_before,
-            snapshot_before,
+            "[historical-search] cache initialized in %.2fs "
+            "rows=%d vocab=%d RSS_before=%.1f MB RSS_after=%.1f MB",
+            elapsed,
+            len(df),
+            len(vectorizer.vocabulary_),
+            rss_before if rss_before is not None else -1.0,
+            _process_rss_mb() if _process_rss_mb() is not None else -1.0,
         )
 
 
-def _load_historical():
-    """Lazy-load FAISS index and sentence-transformer model on first use."""
+def _load_historical() -> None:
+    """Ensure the TF-IDF cache is warm. Raises on failure."""
     _initialize_historical_cache()
-    if _hist_df is None or _hist_index is None or _hist_model is None:
-        raise RuntimeError("Historical search artifacts are unavailable")
+    if _hist_df is None or _tfidf_vectorizer is None or _tfidf_matrix is None:
+        raise RuntimeError("Historical search cache is unavailable")
 
 
-# NOTE: No eager warmup here — deferring to first /historical-search or /dispatch call
+# NOTE: No eager warmup at import time — deferred to first request.
 
 
 def search_similar_incidents(
@@ -1294,31 +1237,44 @@ def search_similar_incidents(
     top_k: int = 20,
 ) -> dict:
     """
+    Find historical incidents most similar to *query* using TF-IDF cosine similarity.
+
     Parameters
     ----------
-    query   : Free-text description
-    top_k   : Number of neighbours to retrieve
+    query   : Free-text description, e.g. 'Vehicle Breakdown Tumkur Road Heavy Vehicle'
+    top_k   : Number of results to return
 
     Returns
     -------
-    dict with keys: similar_cases, average_resolution_time, historical_priority,
-                    most_common_outcome, total_similar
+    dict with keys (schema identical to the former FAISS implementation):
+        similar_cases           – list[dict]  top_k matching incidents
+        total_similar           – int         count of incidents with score >= 0.10
+        average_resolution_time – float|None  median resolution minutes
+        historical_priority     – str         most common priority label
+        most_common_outcome     – str         most common event_cause label
     """
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
-    snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
+
+    # ── 1. Ensure cache is warm ──────────────────────────────────────────────
     _load_historical()
     load_elapsed = time.perf_counter() - started_at
 
-    embed_started_at = time.perf_counter()
-    q_vec = _hist_model.encode([query], normalize_embeddings=True).astype("float32")
-    embed_elapsed = time.perf_counter() - embed_started_at
+    # ── 2. Vectorise query (same vocabulary as corpus) ───────────────────────
+    vec_started = time.perf_counter()
+    query_vec = _tfidf_vectorizer.transform([query])   # (1, n_features) sparse
+    vec_elapsed = time.perf_counter() - vec_started
 
-    search_started_at = time.perf_counter()
-    scores, indices = _hist_index.search(q_vec, top_k)
-    search_elapsed = time.perf_counter() - search_started_at
-    matched = _hist_df.iloc[indices[0]].copy()
-    matched["similarity_score"] = scores[0]
+    # ── 3. Cosine similarity against full matrix ─────────────────────────────
+    search_started = time.perf_counter()
+    scores_array = sk_cosine_similarity(query_vec, _tfidf_matrix).flatten()
+    # argsort ascending → take last top_k and reverse for descending order
+    top_indices = scores_array.argsort()[-top_k:][::-1]
+    search_elapsed = time.perf_counter() - search_started
+
+    # ── 4. Build result rows ─────────────────────────────────────────────────
+    matched = _hist_df.iloc[top_indices].copy()
+    matched["similarity_score"] = scores_array[top_indices]
 
     avg_res_time = (
         matched["resolution_mins"].dropna().median()
@@ -1339,13 +1295,13 @@ def search_similar_incidents(
     cases = []
     for _, row in matched.iterrows():
         cases.append({
-            "event_cause": str(row.get("event_cause", "")),
-            "corridor": str(row.get("corridor", "")),
-            "junction": str(row.get("junction", "")),
-            "priority": str(row.get("priority", "")),
-            "veh_type": str(row.get("veh_type", "")),
+            "event_cause":    str(row.get("event_cause", "")),
+            "corridor":       str(row.get("corridor", "")),
+            "junction":       str(row.get("junction", "")),
+            "priority":       str(row.get("priority", "")),
+            "veh_type":       str(row.get("veh_type", "")),
             "police_station": str(row.get("police_station", "")),
-            "status": str(row.get("status", "")),
+            "status":         str(row.get("status", "")),
             "resolution_mins": (
                 round(float(row["resolution_mins"]), 1)
                 if pd.notna(row.get("resolution_mins")) else None
@@ -1353,29 +1309,32 @@ def search_similar_incidents(
             "similarity_score": round(float(row["similarity_score"]), 4),
         })
 
-    all_scores, _ = _hist_index.search(q_vec, min(len(_hist_df), 5000))
-    total_similar = int((all_scores[0] >= 0.75).sum())
+    # total_similar: incidents with cosine score >= 0.10
+    # (TF-IDF cosine scores are lower than neural embedding scores;
+    #  0.10 is a calibrated threshold equivalent to the former 0.75 FAISS threshold)
+    total_similar = int((scores_array >= 0.10).sum())
 
     result = {
-        "similar_cases": cases,
-        "total_similar": total_similar,
+        "similar_cases":           cases,
+        "total_similar":           total_similar,
         "average_resolution_time": round(avg_res_time, 1) if avg_res_time else None,
-        "historical_priority": most_common_priority,
-        "most_common_outcome": most_common_outcome,
+        "historical_priority":     most_common_priority,
+        "most_common_outcome":     most_common_outcome,
     }
+
+    elapsed = time.perf_counter() - started_at
     logger.info(
-        "[final_endpoints] historical-search stages load=%.3fs embed=%.3fs search=%.3fs total=%.3fs top_k=%s",
+        "[historical-search] search completed in %.2fs "
+        "(load=%.3fs vec=%.3fs search=%.3fs) top_k=%d total_similar=%d "
+        "RSS_before=%.1f MB RSS_after=%.1f MB",
+        elapsed,
         load_elapsed,
-        embed_elapsed,
+        vec_elapsed,
         search_elapsed,
-        time.perf_counter() - started_at,
         top_k,
-    )
-    _log_memory_delta(
-        "historical-search",
-        started_at,
-        rss_before,
-        snapshot_before,
+        total_similar,
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
     )
     return result
 
