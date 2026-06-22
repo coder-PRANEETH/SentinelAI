@@ -1,12 +1,13 @@
 """
-models.py
-SentinelAI  Unified Flask API
-Combines:
-  - CatBoost prediction models (risk / road closure / resolution time)
-  - Resource Intelligence (SQLite-based station inventory)
-  - Historical Incident Search (FAISS + Sentence Transformers)
-  - Station Load Balancer & Dispatch Pipeline
-  - Corridor Ripple Simulator (NetworkX + BFS Propagation)
+models.py (Optimized for Render Free Tier)
+SentinelAI Unified Flask API
+
+Optimizations:
+  - Lazy loading: models, FAISS, embeddings only load on first request
+  - Streaming startup: Flask binds immediately, health check available
+  - Reduced memory: mmap mode for embeddings, no eager full dataset load
+  - Connection pool: tuned for single gunicorn worker
+  - Graceful degradation: missing artifacts don't crash startup
 """
 
 import os
@@ -25,13 +26,14 @@ from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from threading import Lock
+from threading import Lock, Event
 
 from flask import Flask, request, jsonify
 try:
     from flask_cors import CORS
 except ImportError:
-    CORS = None  # flask-cors not installed; CORS middleware skipped
+    CORS = None
+
 from catboost import CatBoostClassifier, CatBoostRegressor
 import pandas as pd
 import numpy as np
@@ -40,11 +42,33 @@ import psycopg2
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PATH RESOLUTION
-# All paths are relative to the project root (parent of final_endpoints/)
 # ─────────────────────────────────────────────────────────────────────────────
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))              # final_endpoints/
-PROJECT_ROOT = os.path.dirname(BASE_DIR)                           # gridlock/
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+
+
+def _load_local_env(env_path: str) -> None:
+    """Load simple KEY=VALUE pairs from a local .env file if present."""
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip("'").strip('"')
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as exc:
+        print(f"[final_endpoints] failed to load env file {env_path}: {exc}")
+
+
+_load_local_env(os.path.join(BASE_DIR, ".env"))
 
 TRAINED_MODEL_DIR = os.path.join(PROJECT_ROOT, "trained_model")
 RESOURCE_MODULE_DIR = os.path.join(
@@ -65,17 +89,18 @@ BACKEND_API_URL = os.getenv(
     os.getenv("NEXT_PUBLIC_BACKEND_API_URL", "http://127.0.0.1:5001"),
 )
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING & MEMORY HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _process_rss_mb() -> Optional[float]:
     """Best-effort resident set size for request-time memory profiling."""
     try:
         import psutil
-
         return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
     except Exception:
         try:
             import resource
-
             rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             return rss_kb / 1024.0
         except Exception:
@@ -112,8 +137,9 @@ def _log_memory_delta(
 
     logger.info(" ".join(parts))
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# FLASK APP
+# FLASK APP SETUP
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -128,6 +154,7 @@ if CORS is not None:
         ],
         supports_credentials=True,
     )
+
 logger = logging.getLogger(__name__)
 
 if not tracemalloc.is_tracing():
@@ -161,84 +188,68 @@ def _attach_cors_headers(response):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 1 — CATBOOST PREDICTION MODELS
+# SECTION 1 — CATBOOST MODELS (LAZY-LOADED)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# ── Load Models ──────────────────────────────────────────────────────────────
+_risk_model = None
+_closure_model = None
+_time_model = None
+_models_lock = Lock()
 
-risk_model = CatBoostClassifier()
-risk_model.load_model(
-    os.path.join(TRAINED_MODEL_DIR, "priority_catboost_model.cbm")
-)
 
-closure_model = CatBoostClassifier()
-closure_model.load_model(
-    os.path.join(TRAINED_MODEL_DIR, "road_closure_catboost_model.cbm")
-)
+def _load_catboost_models():
+    """Lazy-load CatBoost models on first predict() call."""
+    global _risk_model, _closure_model, _time_model
+    if _risk_model is not None:
+        return
 
-time_model = CatBoostRegressor()
-time_model.load_model(
-    os.path.join(TRAINED_MODEL_DIR, "resolution_time_model.cbm")
-)
+    with _models_lock:
+        if _risk_model is not None:
+            return
 
-# ── Feature Sets (must match training scripts exactly) ───────────────────────
+        started_at = time.perf_counter()
+        logger.info("[final_endpoints] Loading CatBoost models...")
+
+        _risk_model = CatBoostClassifier()
+        _risk_model.load_model(
+            os.path.join(TRAINED_MODEL_DIR, "priority_catboost_model.cbm")
+        )
+
+        _closure_model = CatBoostClassifier()
+        _closure_model.load_model(
+            os.path.join(TRAINED_MODEL_DIR, "road_closure_catboost_model.cbm")
+        )
+
+        _time_model = CatBoostRegressor()
+        _time_model.load_model(
+            os.path.join(TRAINED_MODEL_DIR, "resolution_time_model.cbm")
+        )
+
+        logger.info(
+            "[final_endpoints] CatBoost models loaded in %.3fs",
+            time.perf_counter() - started_at,
+        )
+
 
 RISK_FEATURES = [
-    'event_type_grouped',
-    'event_cause',
-    'corridor',
-    'police_station_grouped',
-    'veh_type_grouped',
-    'day_of_week',
-    'latitude',
-    'longitude',
-    'location_cluster',
-    'hour_of_day',
-    'month',
-    'is_peak_hour',
-    'is_weekend',
-    'is_cascaded',
-    'cascade_size'
+    'event_type_grouped', 'event_cause', 'corridor', 'police_station_grouped',
+    'veh_type_grouped', 'day_of_week', 'latitude', 'longitude', 'location_cluster',
+    'hour_of_day', 'month', 'is_peak_hour', 'is_weekend', 'is_cascaded', 'cascade_size'
 ]
+
 CLOSURE_FEATURES = [
-    'event_type_grouped',
-    'event_cause',
-    'corridor',
-    'police_station_grouped',
-    'veh_type_grouped',
-    'day_of_week',
-    'priority',
-    'latitude',
-    'longitude',
-    'location_cluster',
-    'hour_of_day',
-    'month',
-    'is_peak_hour',
-    'is_weekend',
-    'is_cascaded',
-    'cascade_size'
+    'event_type_grouped', 'event_cause', 'corridor', 'police_station_grouped',
+    'veh_type_grouped', 'day_of_week', 'priority', 'latitude', 'longitude',
+    'location_cluster', 'hour_of_day', 'month', 'is_peak_hour', 'is_weekend',
+    'is_cascaded', 'cascade_size'
 ]
 
 TIME_FEATURES = [
-    'event_type_grouped',
-    'event_cause',
-    'corridor',
-    'police_station_grouped',
-    'veh_type_grouped',
-    'day_of_week',
-    'priority',
-    'latitude',
-    'longitude',
-    'location_cluster',
-    'hour_of_day',
-    'month',
-    'is_peak_hour',
-    'is_weekend',
-    'is_cascaded',
-    'cascade_size'
+    'event_type_grouped', 'event_cause', 'corridor', 'police_station_grouped',
+    'veh_type_grouped', 'day_of_week', 'priority', 'latitude', 'longitude',
+    'location_cluster', 'hour_of_day', 'month', 'is_peak_hour', 'is_weekend',
+    'is_cascaded', 'cascade_size'
 ]
-
-# ── Default Values ───────────────────────────────────────────────────────────
 
 DEFAULTS = {
     "event_type_grouped": "unknown",
@@ -249,48 +260,38 @@ DEFAULTS = {
     "police_station_grouped": "unknown",
     "veh_type_grouped": "unknown",
     "day_of_week": "unknown",
-
     "latitude": 0.0,
     "longitude": 0.0,
-
     "location_cluster": -1,
-
     "hour_of_day": 12,
     "month": 1,
-
     "is_peak_hour": 0,
     "is_weekend": 0,
-
     "is_cascaded": 0,
     "cascade_size": 1
 }
 
 
 def build_dataframe(payload, feature_list):
-    """Build a single-row DataFrame from the payload using the given feature list."""
+    """Build a single-row DataFrame from the payload."""
     row = {}
     for feature in feature_list:
-        row[feature] = payload.get(
-            feature,
-            DEFAULTS.get(feature)
-        )
+        row[feature] = payload.get(feature, DEFAULTS.get(feature))
     df = pd.DataFrame([row])
     return df[feature_list]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — RESOURCE DATABASE (from resource_database.py)
+# SECTION 2 — RESOURCE DATABASE (POOLED CONNECTION)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# ── Default resource pool per station ────────────────────────────────────────
 DEFAULT_RESOURCES = {
-    "officers":   15,
-    "vehicles":    4,
-    "tow_trucks":  2,
+    "officers": 15,
+    "vehicles": 4,
+    "tow_trucks": 2,
     "barricades": 20,
 }
 
-# Stations list pulled directly from the Astram dataset
 STATIONS: List[str] = [
     "Peenya", "HSR Layout", "Wilson Garden", "Sadashivanagar", "Hebbala",
     "Kengeri", "Cubbon Park", "Hennuru", "K.R. Pura", "Byatarayanapura",
@@ -307,13 +308,8 @@ STATIONS: List[str] = [
     "Thalagattapura", "Upparpet",
 ]
 
-
-# ── Connection pool (initialized once at startup) ────────────────────────────
-# Supabase free tier: 25 max connections.
-# Render free tier: 1 gunicorn worker by default (see start command).
-# Pool sized at min=1, max=5 — well within budget even if concurrency is
-# briefly higher than 1 worker.
 _db_pool = None
+
 
 def _get_pool():
     """Lazily initialise the connection pool on first call."""
@@ -323,21 +319,18 @@ def _get_pool():
         if not db_url:
             raise Exception("DATABASE_URL environment variable is missing")
         from psycopg2 import pool as pg_pool
+        # Render free: 1 worker, so keep pool minimal
         _db_pool = pg_pool.ThreadedConnectionPool(
             minconn=1,
-            maxconn=5,
+            maxconn=3,  # Reduced from 5
             dsn=db_url,
         )
-        print("[ResourceDB] Connection pool initialised (min=1, max=5)")
+        print("[ResourceDB] Connection pool initialised (min=1, max=3)")
     return _db_pool
 
 
 class DBWrapper:
-    """Thin wrapper around a pooled psycopg2 connection.
-
-    Always call .close() (or use as a context manager) to return the
-    connection to the pool rather than closing it.
-    """
+    """Thin wrapper around a pooled psycopg2 connection."""
     def __init__(self):
         self._pool = _get_pool()
         self.conn = self._checkout_connection()
@@ -363,7 +356,6 @@ class DBWrapper:
         try:
             cur = self.conn.cursor()
             if query:
-                # Translate SQLite-style ? placeholders to psycopg2 %s
                 cur.execute(query.replace('?', '%s'), params)
             return cur
         except psycopg2.Error:
@@ -387,7 +379,7 @@ class DBWrapper:
         self.conn.rollback()
 
     def close(self):
-        """Return this connection to the pool (NOT psycopg2 close)."""
+        """Return this connection to the pool."""
         try:
             if getattr(self.conn, "closed", 1):
                 self._pool.putconn(self.conn, close=True)
@@ -396,7 +388,6 @@ class DBWrapper:
         except Exception:
             pass
 
-    # Context-manager support so callers can use `with _get_db_connection() as conn:`
     def __enter__(self):
         return self
 
@@ -487,37 +478,15 @@ def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
         cur.execute(
             """
             INSERT INTO incidents (
-                incident_id,
-                incident_type,
-                event_cause,
-                vehicle_type,
-                location,
-                corridor,
-                latitude,
-                longitude,
-                status,
-                reported_at,
-                raw_transcript,
-                is_cancelled,
-                created_at,
-                updated_at
+                incident_id, incident_type, event_cause, vehicle_type,
+                location, corridor, latitude, longitude, status,
+                reported_at, raw_transcript, is_cancelled, created_at, updated_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                incident_id,
-                incident_type,
-                event_cause,
-                vehicle_type,
-                location,
-                corridor,
-                latitude,
-                longitude,
-                "REPORTED",
-                created_at,
-                request_json,
-                False,
-                created_at,
-                created_at,
+                incident_id, incident_type, event_cause, vehicle_type,
+                location, corridor, latitude, longitude, "REPORTED",
+                created_at, request_json, False, created_at, created_at,
             ),
         )
 
@@ -529,28 +498,18 @@ def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
         cur.execute(
             """
             INSERT INTO predictions (
-                prediction_id,
-                incident_id,
-                predicted_priority,
-                priority_confidence,
-                predicted_resolution_minutes,
-                road_closure_probability,
-                road_closure_recommendation,
-                model_version,
-                created_at
+                prediction_id, incident_id, predicted_priority, priority_confidence,
+                predicted_resolution_minutes, road_closure_probability,
+                road_closure_recommendation, model_version, created_at
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                prediction_id,
-                incident_id,
-                predicted_priority,
+                prediction_id, incident_id, predicted_priority,
                 round(float(predictions.get("priority_confidence", 0.0)) / 100.0, 4)
-                if predictions.get("priority_confidence") is not None
-                else None,
+                if predictions.get("priority_confidence") is not None else None,
                 expected_resolution_minutes,
                 round(float(road_closure_probability) / 100.0, 4)
-                if road_closure_probability is not None
-                else None,
+                if road_closure_probability is not None else None,
                 "Yes" if road_closure_required else "No",
                 "final_endpoints-1.0",
                 created_at,
@@ -570,7 +529,7 @@ def _store_received_incident(payload: dict, response: dict) -> tuple[str, str]:
 
 
 def _extract_incident_id(payload: dict) -> Optional[str]:
-    """Best-effort incident_id extraction for dispatch/status updates."""
+    """Best-effort incident_id extraction."""
     incident_id = payload.get("incident_id")
     if incident_id:
         return str(incident_id).strip()
@@ -592,8 +551,7 @@ def _mark_backend_incident_in_progress(incident_id: str) -> bool:
         cur.execute(
             """
             UPDATE incidents
-               SET status = 'IN_PROGRESS',
-                   updated_at = NOW()
+               SET status = 'IN_PROGRESS', updated_at = NOW()
              WHERE incident_id = %s
                AND status IN ('REPORTED', 'UNDER_ASSESSMENT', 'RESOURCES_ASSIGNED', 'IN_PROGRESS')
             """,
@@ -641,7 +599,6 @@ def _init_db(db_file=DB_FILE, force=False):
         if force:
             conn.execute("DELETE FROM station_resources")
 
-        # Seed only missing stations
         import random
         for i, station in enumerate(STATIONS):
             if i % 5 == 0:
@@ -665,7 +622,6 @@ def _init_db(db_file=DB_FILE, force=False):
                 (station, off, veh, tow, bar),
             )
 
-            # Fix any station with all zeros from a previous bug
             conn.execute("""
                 UPDATE station_resources
                 SET officers=%s, vehicles=%s, tow_trucks=%s, barricades=%s
@@ -677,8 +633,6 @@ def _init_db(db_file=DB_FILE, force=False):
 
 
 def _log_action(conn, station, action, officers, vehicles, tow_trucks, barricades):
-    # Uses %s placeholders (psycopg2); DBWrapper.execute() also handles ? → %s,
-    # but we write %s directly here to be explicit.
     conn.execute(
         "INSERT INTO resource_log (station,action,officers,vehicles,tow_trucks,barricades) VALUES (%s,%s,%s,%s,%s,%s)",
         (station, action, officers, vehicles, tow_trucks, barricades),
@@ -686,15 +640,14 @@ def _log_action(conn, station, action, officers, vehicles, tow_trucks, barricade
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — RESOURCE TRACKER (from resource_tracker.py)
+# SECTION 3 — RESOURCE TRACKER
 # ═════════════════════════════════════════════════════════════════════════════
 
 class ResourceTracker:
     def __init__(self, db_file=DB_FILE):
         self.db_file = db_file
-        _init_db(db_file)  # idempotent – safe to call each time
+        _init_db(db_file)
 
-    # ── Internal helpers ─────────────────────────────────────────────────────
     def _get(self, station: str) -> Optional[dict]:
         conn = _get_db_connection(self.db_file)
         row = conn.execute(
@@ -705,9 +658,9 @@ class ResourceTracker:
         if not row:
             return None
         return {
-            "station":    station,
-            "officers":   row[0],
-            "vehicles":   row[1],
+            "station": station,
+            "officers": row[0],
+            "vehicles": row[1],
             "tow_trucks": row[2],
             "barricades": row[3],
         }
@@ -720,7 +673,6 @@ class ResourceTracker:
             (officers, vehicles, tow_trucks, barricades, station),
         )
 
-    # ── Public API ───────────────────────────────────────────────────────────
     def get_available_resources(self, station: str) -> dict:
         """Return current resource snapshot for a station."""
         res = self._get(station)
@@ -736,10 +688,7 @@ class ResourceTracker:
         tow_trucks: int = 0,
         barricades: int = 0,
     ) -> dict:
-        """
-        Deduct resources for an active dispatch within a single pooled connection.
-        Raises ValueError if station lacks sufficient resources.
-        """
+        """Deduct resources for an active dispatch."""
         with _get_db_connection() as conn:
             cur = conn.execute(
                 "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=%s",
@@ -769,7 +718,6 @@ class ResourceTracker:
             _log_action(conn, station, "allocate", officers, vehicles, tow_trucks, barricades)
             conn.commit()
 
-            # Read back remaining within the SAME connection — no second round-trip
             remaining = {
                 "station": station,
                 "officers": new_o,
@@ -779,11 +727,11 @@ class ResourceTracker:
             }
 
         return {
-            "station":    station,
-            "action":     "allocated",
+            "station": station,
+            "action": "allocated",
             "dispatched": {"officers": officers, "vehicles": vehicles,
                            "tow_trucks": tow_trucks, "barricades": barricades},
-            "remaining":  remaining,
+            "remaining": remaining,
         }
 
     def release_resources(
@@ -794,7 +742,7 @@ class ResourceTracker:
         tow_trucks: int = 0,
         barricades: int = 0,
     ) -> dict:
-        """Return resources to station after incident resolution, single connection."""
+        """Return resources to station after incident resolution."""
         with _get_db_connection() as conn:
             cur = conn.execute(
                 "SELECT officers, vehicles, tow_trucks, barricades FROM station_resources WHERE station=%s",
@@ -823,11 +771,11 @@ class ResourceTracker:
             }
 
         return {
-            "station":  station,
-            "action":   "released",
+            "station": station,
+            "action": "released",
             "returned": {"officers": officers, "vehicles": vehicles,
                          "tow_trucks": tow_trucks, "barricades": barricades},
-            "current":  current,
+            "current": current,
         }
 
     def list_all_stations(self) -> list:
@@ -843,17 +791,16 @@ class ResourceTracker:
         ]
 
     def get_all_resources_batch(self) -> dict:
-        """Fetch ALL stations in one query. Returns {station_name: resource_dict}.
-        Used by station_readiness to avoid 53 separate DB round-trips."""
+        """Fetch ALL stations in one query. Batch mode to avoid 53 round-trips."""
         with _get_db_connection() as conn:
             rows = conn.fetchall_query(
                 "SELECT station, officers, vehicles, tow_trucks, barricades FROM station_resources"
             )
         return {
             r[0]: {
-                "station":    r[0],
-                "officers":   r[1],
-                "vehicles":   r[2],
+                "station": r[0],
+                "officers": r[1],
+                "vehicles": r[2],
                 "tow_trucks": r[3],
                 "barricades": r[4],
             }
@@ -861,15 +808,13 @@ class ResourceTracker:
         }
 
 
-# Initialise the tracker at module level
 tracker = ResourceTracker()
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — STATION READINESS (from station_readiness.py)
+# SECTION 4 — STATION READINESS (CACHED DATASET LOAD)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Weights for resource importance
 RESOURCE_WEIGHTS = {"officers": 0.5, "vehicles": 0.3, "tow_trucks": 0.2}
 
 
@@ -889,21 +834,13 @@ def _load_dataset(data_file: str) -> pd.DataFrame:
 
 @lru_cache(maxsize=1)
 def compute_station_loads(data_file: str) -> Dict[str, dict]:
-    """
-    Compute per-station load metrics from the historical dataset.
-    Uses active + recent incidents as a proxy for current load.
-
-    Returns dict keyed by station with:
-        active_incidents, high_priority_incidents, avg_resolution_mins
-    """
+    """Compute per-station load metrics from the historical dataset."""
     started_at = time.perf_counter()
     df = _load_dataset(data_file).copy()
 
-    # Proxy: 'active' status or open (no resolved_datetime)
     active_mask = (df["status"] == "active") | (df["resolved_datetime"].isna() & (df["status"] != "closed"))
     active_df = df[active_mask]
 
-    # Resolution times
     df["start_dt"]    = pd.to_datetime(df["start_datetime"],    utc=True, errors="coerce")
     df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
     df["resolution_mins"] = (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
@@ -916,10 +853,11 @@ def compute_station_loads(data_file: str) -> Dict[str, dict]:
         avg_res           = station_all["resolution_mins"].dropna().median()
 
         loads[station] = {
-            "active_incidents":        int(len(station_active)),
+            "active_incidents": int(len(station_active)),
             "high_priority_incidents": int(len(high_priority)),
-            "avg_resolution_mins":     round(float(avg_res), 1) if pd.notna(avg_res) else 60.0,
+            "avg_resolution_mins": round(float(avg_res), 1) if pd.notna(avg_res) else 60.0,
         }
+
     logger.info(
         "[final_endpoints] station loads computed stations=%s duration=%.3fs",
         len(loads),
@@ -933,10 +871,7 @@ def compute_readiness_score(
     resource_tracker: ResourceTracker,
     loads: Dict[str, dict],
 ) -> dict:
-    """
-    Readiness score = weighted_resource_ratio / (1 + load_factor)
-    Score range: 0–100 (higher = more ready)
-    """
+    """Readiness score = weighted_resource_ratio / (1 + load_factor)"""
     try:
         res = resource_tracker.get_available_resources(station)
     except ValueError:
@@ -948,7 +883,6 @@ def compute_readiness_score(
         "avg_resolution_mins": 60.0,
     })
 
-    # Weighted resource availability ratio (0-1)
     resource_ratio = (
         RESOURCE_WEIGHTS["officers"]   * (res["officers"]   / max(DEFAULT_RESOURCES["officers"],   1)) +
         RESOURCE_WEIGHTS["vehicles"]   * (res["vehicles"]   / max(DEFAULT_RESOURCES["vehicles"],   1)) +
@@ -957,57 +891,67 @@ def compute_readiness_score(
 
     import math
     effective_load = load["active_incidents"] + 0.5 * load["high_priority_incidents"]
-    # Use a logarithmic scale to differentiate high-load stations without hitting a hard cap
     load_factor = math.log1p(effective_load) / 1.5
 
     raw_score = resource_ratio / (1.0 + load_factor)
     score     = round(raw_score * 100, 1)
 
     return {
-        "station":                 station,
-        "readiness_score":         score,
-        "resource_ratio_pct":      round(resource_ratio * 100, 1),
-        "available_officers":      res["officers"],
-        "available_vehicles":      res["vehicles"],
-        "available_tow_trucks":    res["tow_trucks"],
-        "active_incidents":        load["active_incidents"],
+        "station": station,
+        "readiness_score": score,
+        "resource_ratio_pct": round(resource_ratio * 100, 1),
+        "available_officers": res["officers"],
+        "available_vehicles": res["vehicles"],
+        "available_tow_trucks": res["tow_trucks"],
+        "active_incidents": load["active_incidents"],
         "high_priority_incidents": load["high_priority_incidents"],
-        "avg_resolution_mins":     load["avg_resolution_mins"],
+        "avg_resolution_mins": load["avg_resolution_mins"],
     }
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — LOAD BALANCER (from load_balancer.py)
+# SECTION 5 — LOAD BALANCER (LAZY-INITIALIZED)
 # ═════════════════════════════════════════════════════════════════════════════
 
 class LoadBalancer:
     def __init__(self, data_file: str = DATA_FILE):
-        self._tracker = tracker  # use module-level tracker
-        started_at = time.perf_counter()
-        print("[LoadBalancer] Computing station loads from historical data …")
-        self.loads = compute_station_loads(data_file)
-        logger.info(
-            "[final_endpoints] load balancer initialized duration=%.3fs",
-            time.perf_counter() - started_at,
-        )
+        self._tracker = tracker
+        self.loads = None
+        self._loads_lock = Lock()
+
+    def _ensure_loads(self):
+        """Lazy-load station loads on first use."""
+        if self.loads is not None:
+            return
+        with self._loads_lock:
+            if self.loads is not None:
+                return
+            started_at = time.perf_counter()
+            logger.info("[LoadBalancer] Computing station loads from historical data …")
+            self.loads = compute_station_loads(DATA_FILE)
+            logger.info(
+                "[final_endpoints] load balancer initialized duration=%.3fs",
+                time.perf_counter() - started_at,
+            )
 
     def _candidate_stations(self, corridor: Optional[str] = None) -> List[str]:
-        """
-        Filter stations that historically handle the given corridor.
-        Falls back to all stations if none found.
-        """
+        """Filter stations that historically handle the given corridor."""
         if not corridor:
             return [s for s in STATIONS if s != "No Police Station"]
 
-        df = _load_dataset(DATA_FILE)
-        corridor_stations = (
-            df[df["corridor"].str.lower() == corridor.lower()]["police_station"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
-        if len(corridor_stations) >= 2:
-            return corridor_stations
+        try:
+            df = _load_dataset(DATA_FILE)
+            corridor_stations = (
+                df[df["corridor"].str.lower() == corridor.lower()]["police_station"]
+                .dropna()
+                .unique()
+                .tolist()
+            )
+            if len(corridor_stations) >= 2:
+                return corridor_stations
+        except Exception:
+            pass
+
         return [s for s in STATIONS if s != "No Police Station"]
 
     def rank_stations(
@@ -1016,6 +960,8 @@ class LoadBalancer:
         candidate_stations: Optional[List[str]] = None,
     ) -> List[dict]:
         """Compute and rank readiness scores for candidate stations."""
+        self._ensure_loads()
+
         if candidate_stations is None:
             candidate_stations = self._candidate_stations(corridor)
 
@@ -1034,19 +980,9 @@ class LoadBalancer:
         min_officers: int = 1,
         min_vehicles: int = 1,
     ) -> dict:
-        """
-        Main entry point.  Returns the best station with explanation.
-
-        Parameters
-        ----------
-        incident_location : Free-text location description
-        corridor          : Matched corridor name (e.g. 'Tumkur Road')
-        min_officers      : Minimum officers required for the incident
-        min_vehicles      : Minimum vehicles required for the incident
-        """
+        """Main entry point. Returns the best station with explanation."""
         ranked = self.rank_stations(corridor)
 
-        # Filter: must have enough baseline resources
         eligible = [
             r for r in ranked
             if r["available_officers"] >= min_officers
@@ -1054,11 +990,10 @@ class LoadBalancer:
         ]
 
         if not eligible:
-            eligible = ranked  # relax constraint if all stations stretched
+            eligible = ranked
 
         best = eligible[0]
 
-        # Build human-readable recommendation
         reasons = []
         if best["readiness_score"] == max(r["readiness_score"] for r in ranked):
             reasons.append("Highest readiness score")
@@ -1068,29 +1003,29 @@ class LoadBalancer:
             reasons.append("Sufficient resources available")
 
         return {
-            "incident_location":   incident_location,
+            "incident_location": incident_location,
             "recommended_station": best["station"],
-            "readiness_score":     best["readiness_score"],
-            "reason":              reasons,
-            "station_details":     best,
-            "all_candidates":      [
+            "readiness_score": best["readiness_score"],
+            "reason": reasons,
+            "station_details": best,
+            "all_candidates": [
                 {
-                    "station":       r["station"],
+                    "station": r["station"],
                     "readiness_pct": r["readiness_score"],
-                    "active":        r["active_incidents"],
-                    "officers":      r["available_officers"],
-                    "vehicles":      r["available_vehicles"],
+                    "active": r["active_incidents"],
+                    "officers": r["available_officers"],
+                    "vehicles": r["available_vehicles"],
                 }
-                for r in ranked[:8]   # top 8 for display
+                for r in ranked[:8]
             ],
         }
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — EMBEDDING PIPELINE (from embedding_pipeline.py)
+# SECTION 6 — EMBEDDING PIPELINE (LAZY-LOADED, MMAP)
 # ═════════════════════════════════════════════════════════════════════════════
 
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"   # fast, 384-dim, good quality
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 FEATURE_COLS = [
     "event_cause", "corridor", "junction",
@@ -1102,20 +1037,16 @@ FEATURE_COLS = [
 def _load_and_clean(path: str) -> pd.DataFrame:
     df = pd.read_csv(path, encoding="latin1")
 
-    # Parse datetimes
     df["start_dt"]    = pd.to_datetime(df["start_datetime"],   utc=True, errors="coerce")
     df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
 
-    # Resolution time in minutes
     df["resolution_mins"] = (
         (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
     )
 
-    # Day / hour features
     df["day"]  = df["start_dt"].dt.day_name()
     df["hour"] = df["start_dt"].dt.hour
 
-    # Fill NaN in text cols
     for col in FEATURE_COLS:
         if col in df.columns:
             df[col] = df[col].fillna("unknown")
@@ -1147,7 +1078,7 @@ def _build_embeddings(df: pd.DataFrame, model) -> np.ndarray:
 def _build_faiss_index(embeddings: np.ndarray):
     import faiss
     dim   = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)   # Inner-product == cosine on L2-normalised vecs
+    index = faiss.IndexFlatIP(dim)
     index.add(embeddings)
     print(f"[EmbeddingPipeline] FAISS index built – {index.ntotal} vectors, dim={dim}")
     return index
@@ -1166,6 +1097,7 @@ def _save_artifacts(df, embeddings, index, out_dir=FAISS_INDEX_DIR):
 def _load_artifacts(out_dir=FAISS_INDEX_DIR):
     import faiss
     index      = faiss.read_index(os.path.join(out_dir, "incidents.index"))
+    # ← KEY OPTIMIZATION: mmap_mode="r" loads only on first access
     embeddings = np.load(os.path.join(out_dir, "embeddings.npy"), mmap_mode="r")
     df         = pd.read_pickle(os.path.join(out_dir, "incidents.pkl"))
     return df, embeddings, index
@@ -1214,8 +1146,7 @@ def run_embedding_pipeline(data_file=DATA_FILE, out_dir=FAISS_INDEX_DIR, force=F
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — HISTORICAL SEARCH (from historical_search.py)
-# Lazy-loaded to avoid slowing Flask startup
+# SECTION 7 — HISTORICAL SEARCH (LAZY-LOADED, DEFERRED WARMUP)
 # ═════════════════════════════════════════════════════════════════════════════
 
 _hist_df: Optional[pd.DataFrame] = None
@@ -1228,12 +1159,11 @@ _historical_init_lock = Lock()
 @lru_cache(maxsize=1)
 def _load_sentence_transformer_model():
     from sentence_transformers import SentenceTransformer
-
     return SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 
 def _initialize_historical_cache() -> None:
-    """Load FAISS artifacts and the embedding model once per worker."""
+    """Load FAISS artifacts and the embedding model lazily."""
     global _hist_df, _hist_embeddings, _hist_index, _hist_model
     if _hist_df is not None and _hist_index is not None and _hist_model is not None:
         return
@@ -1276,13 +1206,7 @@ def _load_historical():
         raise RuntimeError("Historical search artifacts are unavailable")
 
 
-try:
-    _initialize_historical_cache()
-except Exception as exc:
-    logger.warning(
-        "[final_endpoints] historical cache warmup deferred: %s",
-        exc,
-    )
+# NOTE: No eager warmup here — deferring to first /historical-search or /dispatch call
 
 
 def search_similar_incidents(
@@ -1292,7 +1216,7 @@ def search_similar_incidents(
     """
     Parameters
     ----------
-    query   : Free-text description, e.g. 'Vehicle Breakdown Tumkur Road Heavy Vehicle'
+    query   : Free-text description
     top_k   : Number of neighbours to retrieve
 
     Returns
@@ -1306,7 +1230,6 @@ def search_similar_incidents(
     _load_historical()
     load_elapsed = time.perf_counter() - started_at
 
-    # Embed query (L2-normalised to match inner-product index)
     embed_started_at = time.perf_counter()
     q_vec = _hist_model.encode([query], normalize_embeddings=True).astype("float32")
     embed_elapsed = time.perf_counter() - embed_started_at
@@ -1317,7 +1240,6 @@ def search_similar_incidents(
     matched = _hist_df.iloc[indices[0]].copy()
     matched["similarity_score"] = scores[0]
 
-    # ── Aggregate stats ──────────────────────────────────────────────────────
     avg_res_time = (
         matched["resolution_mins"].dropna().median()
         if "resolution_mins" in matched.columns else None
@@ -1328,41 +1250,38 @@ def search_similar_incidents(
         priority_counts.index[0] if not priority_counts.empty else "Unknown"
     )
 
-    # "outcome" proxied by event_cause (dominant event type in results)
     outcome_counts = matched["event_cause"].value_counts()
     most_common_outcome = (
         outcome_counts.index[0].replace("_", " ").title()
         if not outcome_counts.empty else "Unknown"
     )
 
-    # Build per-case summaries (serialisable)
     cases = []
     for _, row in matched.iterrows():
         cases.append({
-            "event_cause":       str(row.get("event_cause", "")),
-            "corridor":          str(row.get("corridor", "")),
-            "junction":          str(row.get("junction", "")),
-            "priority":          str(row.get("priority", "")),
-            "veh_type":          str(row.get("veh_type", "")),
-            "police_station":    str(row.get("police_station", "")),
-            "status":            str(row.get("status", "")),
-            "resolution_mins":   (
+            "event_cause": str(row.get("event_cause", "")),
+            "corridor": str(row.get("corridor", "")),
+            "junction": str(row.get("junction", "")),
+            "priority": str(row.get("priority", "")),
+            "veh_type": str(row.get("veh_type", "")),
+            "police_station": str(row.get("police_station", "")),
+            "status": str(row.get("status", "")),
+            "resolution_mins": (
                 round(float(row["resolution_mins"]), 1)
                 if pd.notna(row.get("resolution_mins")) else None
             ),
-            "similarity_score":  round(float(row["similarity_score"]), 4),
+            "similarity_score": round(float(row["similarity_score"]), 4),
         })
 
-    # Count total similar in full dataset (cosine threshold 0.75)
     all_scores, _ = _hist_index.search(q_vec, min(len(_hist_df), 5000))
     total_similar = int((all_scores[0] >= 0.75).sum())
 
     result = {
-        "similar_cases":           cases,
-        "total_similar":           total_similar,
+        "similar_cases": cases,
+        "total_similar": total_similar,
         "average_resolution_time": round(avg_res_time, 1) if avg_res_time else None,
-        "historical_priority":     most_common_priority,
-        "most_common_outcome":     most_common_outcome,
+        "historical_priority": most_common_priority,
+        "most_common_outcome": most_common_outcome,
     }
     logger.info(
         "[final_endpoints] historical-search stages load=%.3fs embed=%.3fs search=%.3fs total=%.3fs top_k=%s",
@@ -1382,17 +1301,19 @@ def search_similar_incidents(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — STATION SELECTOR / DISPATCH (from station_selector.py)
-# Lazy-loaded LoadBalancer
+# SECTION 8 — DISPATCH PIPELINE (LAZY-LOADED LOAD BALANCER)
 # ═════════════════════════════════════════════════════════════════════════════
 
 _lb: Optional[LoadBalancer] = None
+_lb_lock = Lock()
 
 
 def _get_balancer() -> LoadBalancer:
     global _lb
     if _lb is None:
-        _lb = LoadBalancer()
+        with _lb_lock:
+            if _lb is None:
+                _lb = LoadBalancer()
     return _lb
 
 
@@ -1422,43 +1343,38 @@ def dispatch(
         "[final_endpoints] dispatch history_search duration=%.3fs",
         time.perf_counter() - history_started_at,
     )
-    
+
     # Step 2 - Dynamic Resource Recommendation Heuristic
-    # The Astram dataset does not track exact historical officer/vehicle counts per incident.
-    # We derive a justified rule-based recommendation from the most common priority and event signals
-    # of the similar historical cases.
     hist_priority = history.get("historical_priority", "low").lower()
-    
-    # Analyze the top similar cases for heavy vehicles or planned events
+
     has_heavy_vehicle = any(c.get("veh_type") in ["heavy_vehicle", "bus"] for c in history["similar_cases"])
     has_planned_event = any(c.get("event_cause") in ["public_event", "procession", "vip_movement", "protest"] for c in history["similar_cases"])
-    
-    # Default baseline
+
     rec_officers = 2
     rec_vehicles = 1
     rec_tow = 0
     rec_barricades = 0
-    
+
     reasoning = []
-    
+
     if hist_priority in ["p1", "high", "critical"]:
         rec_officers += 2
         rec_vehicles += 1
         reasoning.append("High priority historical profile (+2 officers, +1 vehicle)")
-    
+
     if has_heavy_vehicle:
         rec_tow = 1
         reasoning.append("Involves heavy vehicles/buses (+1 tow truck)")
-        
+
     if has_planned_event:
         rec_officers += 4
         rec_barricades = 10
         reasoning.append("Planned event detected in context (+4 officers, +10 barricades)")
-        
+
     if not reasoning:
         reasoning.append("Standard baseline response package")
 
-    # Step 3 – Station selection using the dynamically computed minimums
+    # Step 3 – Station selection
     select_started_at = time.perf_counter()
     selection = lb.select_station(
         incident_location=incident_text,
@@ -1483,11 +1399,11 @@ def dispatch(
     )
     return {
         "dispatch": {
-            "incident":             incident_text,
-            "recommended_station":  selection["recommended_station"],
-            "readiness_score":      selection["readiness_score"],
-            "reasons":              selection["reason"],
-            "top_candidates":       selection["all_candidates"],
+            "incident": incident_text,
+            "recommended_station": selection["recommended_station"],
+            "readiness_score": selection["readiness_score"],
+            "reasons": selection["reason"],
+            "top_candidates": selection["all_candidates"],
         },
         "recommended_resources": {
             "officers": rec_officers,
@@ -1497,16 +1413,16 @@ def dispatch(
             "justification": "Based on historical similarities: " + "; ".join(reasoning)
         },
         "historical_context": {
-            "similar_cases":            history["total_similar"],
-            "average_resolution_time":  history["average_resolution_time"],
-            "historical_priority":      history["historical_priority"],
-            "most_common_outcome":      history["most_common_outcome"],
+            "similar_cases": history["total_similar"],
+            "average_resolution_time": history["average_resolution_time"],
+            "historical_priority": history["historical_priority"],
+            "most_common_outcome": history["most_common_outcome"],
         },
     }
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 10 — BENGALURU TRAFFIC NETWORK GRAPH (CORRIDOR RIPPLE SIMULATOR)
+# SECTION 9 — BENGALURU TRAFFIC NETWORK GRAPH (CORRIDOR RIPPLE SIMULATOR)
 # ═════════════════════════════════════════════════════════════════════════════
 
 BENGALURU_NODES = {
@@ -1538,7 +1454,6 @@ BENGALURU_EDGES = [
     ("Majestic", "Hebbal")
 ]
 
-# Build the NetworkX graph during application startup
 traffic_graph = nx.Graph()
 for node, coords in BENGALURU_NODES.items():
     traffic_graph.add_node(node, lat=coords["lat"], lon=coords["lon"])
@@ -1546,10 +1461,7 @@ traffic_graph.add_edges_from(BENGALURU_EDGES)
 
 
 def run_ripple_bfs(start_node: str, max_depth: int) -> list:
-    """
-    Executes BFS traversal to simulate traffic ripple propagation up to max_depth.
-    Decays severity and escalates time taken by depth level.
-    """
+    """Executes BFS traversal to simulate traffic ripple propagation."""
     matched_start = None
     for node in traffic_graph.nodes:
         if node.lower() == start_node.lower():
@@ -1557,7 +1469,6 @@ def run_ripple_bfs(start_node: str, max_depth: int) -> list:
             break
 
     if not matched_start:
-        # Fallback to the first node if not matched precisely to avoid failing silently
         matched_start = list(traffic_graph.nodes)[0]
 
     visited = {matched_start}
@@ -1574,7 +1485,6 @@ def run_ripple_bfs(start_node: str, max_depth: int) -> list:
                 visited.add(neighbor)
                 next_dist = dist + 1
 
-                # Calculate depth-based attributes
                 if next_dist == 1:
                     severity = "high"
                     time_taken = 15
@@ -1584,7 +1494,7 @@ def run_ripple_bfs(start_node: str, max_depth: int) -> list:
                 elif next_dist == 3:
                     severity = "low"
                     time_taken = 45
-                else:  # next_dist == 4 or greater
+                else:
                     severity = "low"
                     time_taken = 60
 
@@ -1604,7 +1514,7 @@ def run_ripple_bfs(start_node: str, max_depth: int) -> list:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# SECTION 9 — REST ENDPOINTS
+# SECTION 10 — REST ENDPOINTS
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _int_param(val, default=0) -> int:
@@ -1646,40 +1556,41 @@ def health():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
+        _load_catboost_models()  # Lazy-load on first call
         payload = request.get_json()
 
         # ── Risk Model ───────────────────────────────────────────────────
         X_risk = build_dataframe(payload, RISK_FEATURES)
-        risk_prediction = risk_model.predict(X_risk)
+        risk_prediction = _risk_model.predict(X_risk)
         risk_class = int(risk_prediction[0])
-        risk_prob = float(risk_model.predict_proba(X_risk)[0][1])
+        risk_prob = float(_risk_model.predict_proba(X_risk)[0][1])
         predicted_priority = "high" if risk_class == 1 else "low"
 
         payload["priority"] = predicted_priority
 
         # ── Road Closure Model ───────────────────────────────────────────
         X_closure = build_dataframe(payload, CLOSURE_FEATURES)
-        closure_prob = float(closure_model.predict_proba(X_closure)[0][1])
-        closure_prediction = int(closure_model.predict(X_closure)[0])
+        closure_prob = float(_closure_model.predict_proba(X_closure)[0][1])
+        closure_prediction = int(_closure_model.predict(X_closure)[0])
 
         # ── Resolution Time Model ────────────────────────────────────────
         X_time = build_dataframe(payload, TIME_FEATURES)
-        log_time = float(time_model.predict(X_time)[0])
+        log_time = float(_time_model.predict(X_time)[0])
         expected_minutes = float(np.expm1(log_time))
 
         # ── Response ─────────────────────────────────────────────────────
         response = {
             "incident": {
                 "incident_id": None,
-                "event_type":  payload.get("event_type_grouped", "unknown"),
+                "event_type": payload.get("event_type_grouped", "unknown"),
                 "event_cause": payload.get("event_cause", "unknown"),
-                "corridor":    payload.get("corridor", "unknown"),
+                "corridor": payload.get("corridor", "unknown"),
             },
             "predictions": {
-                "priority":                    predicted_priority,
-                "priority_confidence":         round(risk_prob * 100, 2),
-                "road_closure_required":       bool(closure_prediction),
-                "road_closure_probability":    round(closure_prob * 100, 2),
+                "priority": predicted_priority,
+                "priority_confidence": round(risk_prob * 100, 2),
+                "road_closure_required": bool(closure_prediction),
+                "road_closure_probability": round(closure_prob * 100, 2),
                 "expected_resolution_minutes": round(expected_minutes, 2),
             }
         }
@@ -1717,10 +1628,7 @@ def get_station(station: str):
 
 @app.route("/stations/<station>/allocate", methods=["POST"])
 def allocate(station: str):
-    """
-    POST /stations/<station>/allocate
-    Body (JSON): { "officers": 2, "vehicles": 1, "tow_trucks": 1, "barricades": 0 }
-    """
+    """POST /stations/<station>/allocate"""
     data = request.get_json(silent=True) or {}
     try:
         result = tracker.allocate_resources(
@@ -1737,10 +1645,7 @@ def allocate(station: str):
 
 @app.route("/stations/<station>/release", methods=["POST"])
 def release(station: str):
-    """
-    POST /stations/<station>/release
-    Body (JSON): { "officers": 2, "vehicles": 1, "tow_trucks": 1, "barricades": 0 }
-    """
+    """POST /stations/<station>/release"""
     data = request.get_json(silent=True) or {}
     try:
         result = tracker.release_resources(
@@ -1759,10 +1664,7 @@ def release(station: str):
 
 @app.route("/historical-search", methods=["POST"])
 def historical_search():
-    """
-    POST /historical-search
-    Body (JSON): { "query": "Vehicle Breakdown Tumkur Road", "top_k": 20 }
-    """
+    """POST /historical-search"""
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
     snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
@@ -1813,16 +1715,7 @@ def historical_search():
 
 @app.route("/dispatch", methods=["POST"])
 def dispatch_endpoint():
-    """
-    POST /dispatch
-    Body (JSON): {
-        "incident_text": "Vehicle Breakdown Tumkur Road Heavy Vehicle",
-        "corridor": "Tumkur Road",         (optional)
-        "min_officers": 2,                 (optional, default 1)
-        "min_vehicles": 1,                 (optional, default 1)
-        "search_top_k": 20                 (optional, default 20)
-    }
-    """
+    """POST /dispatch"""
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
     snapshot_before = tracemalloc.take_snapshot() if tracemalloc.is_tracing() else None
@@ -1884,15 +1777,7 @@ def dispatch_endpoint():
 
 @app.route("/station-readiness", methods=["GET"])
 def station_readiness():
-    """
-    GET /station-readiness?station=Peenya
-    Without ?station param, returns readiness for all stations.
-
-    FIX: Previously opened 53 sequential psycopg2 connections (one per station
-    inside compute_readiness_score → get_available_resources → _get → DBWrapper).
-    Now uses a single batch SELECT to fetch all resource rows, then scores are
-    computed in Python — one connection total per request.
-    """
+    """GET /station-readiness?station=Peenya"""
     started_at = time.perf_counter()
     body_size = len(request.get_data(cache=True) or b"")
     logger.info(
@@ -1911,7 +1796,6 @@ def station_readiness():
         station_param = request.args.get("station")
 
         if station_param:
-            # Single-station path: still just one connection via _get()
             single_started_at = time.perf_counter()
             result = compute_readiness_score(station_param, tracker, loads)
             logger.info(
@@ -1920,10 +1804,9 @@ def station_readiness():
             )
             return _log_endpoint_response("station-readiness", started_at, jsonify(result))
 
-        # ── All-stations path: batch fetch, then score in Python ──────────────
-        # ONE query replaces 53 sequential psycopg2.connect() calls.
+        # ── All-stations path: batch fetch ──────────────────────────────────
         batch_started_at = time.perf_counter()
-        all_resources = tracker.get_all_resources_batch()  # {name: resource_dict}
+        all_resources = tracker.get_all_resources_batch()
 
         import math
         results = []
@@ -1950,15 +1833,15 @@ def station_readiness():
             score = round((resource_ratio / (1.0 + load_factor)) * 100, 1)
 
             results.append({
-                "station":                 station,
-                "readiness_score":         score,
-                "resource_ratio_pct":      round(resource_ratio * 100, 1),
-                "available_officers":      res["officers"],
-                "available_vehicles":      res["vehicles"],
-                "available_tow_trucks":    res["tow_trucks"],
-                "active_incidents":        load["active_incidents"],
+                "station": station,
+                "readiness_score": score,
+                "resource_ratio_pct": round(resource_ratio * 100, 1),
+                "available_officers": res["officers"],
+                "available_vehicles": res["vehicles"],
+                "available_tow_trucks": res["tow_trucks"],
+                "active_incidents": load["active_incidents"],
                 "high_priority_incidents": load["high_priority_incidents"],
-                "avg_resolution_mins":     load["avg_resolution_mins"],
+                "avg_resolution_mins": load["avg_resolution_mins"],
             })
 
         results.sort(key=lambda x: x["readiness_score"], reverse=True)
@@ -1981,14 +1864,7 @@ def station_readiness():
 
 @app.route("/simulate-ripple", methods=["POST"])
 def simulate_ripple():
-    """
-    POST /simulate-ripple
-    Body (JSON): {
-        "location": "Tumkur Road",
-        "priority": "high",
-        "closure_probability": 0.82
-    }
-    """
+    """POST /simulate-ripple"""
     try:
         data = request.get_json(silent=True) or {}
         location = data.get("location", "")
@@ -1997,7 +1873,6 @@ def simulate_ripple():
         if not location:
             return _bad_request("'location' field is required.")
 
-        # Determine depth from closure probability thresholds
         if closure_prob > 0.8:
             depth = 4
         elif closure_prob > 0.6:
