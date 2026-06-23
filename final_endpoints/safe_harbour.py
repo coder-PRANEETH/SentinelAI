@@ -30,6 +30,14 @@ class KerbSafeHarborIdentifier:
                 return
 
             try:
+                import os, pickle
+                cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "safe_harbor_cache.pkl")
+                if os.path.exists(cache_path):
+                    with open(cache_path, "rb") as f:
+                        self.harbors = pickle.load(f)
+                    self._initialized = True
+                    return
+
                 # OPTIMIZATION 1: Only load columns absolutely necessary for clustering
                 target_columns = [
                     "latitude", 

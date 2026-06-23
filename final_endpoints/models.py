@@ -882,6 +882,12 @@ def _load_dataset(data_file: str) -> pd.DataFrame:
 @lru_cache(maxsize=1)
 def compute_station_loads(data_file: str) -> Dict[str, dict]:
     """Compute per-station load metrics from the historical dataset."""
+    import pickle
+    cache_path = os.path.join(BASE_DIR, "station_loads_cache.pkl")
+    if os.path.exists(cache_path):
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
     logger.info("[final_endpoints] STEP 4 dataset load")
@@ -1182,6 +1188,16 @@ def _initialize_historical_cache() -> None:
 
     with _historical_init_lock:
         if _hist_df is not None:       # another thread may have finished while we waited
+            return
+
+        import pickle
+        cache_path = os.path.join(BASE_DIR, "historical_search_cache.pkl")
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                data = pickle.load(f)
+            _hist_df = data["df"]
+            _tfidf_vectorizer = data["vectorizer"]
+            _tfidf_matrix = data["matrix"]
             return
 
         started_at = time.perf_counter()
