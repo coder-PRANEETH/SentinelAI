@@ -24,17 +24,22 @@ def evaluate_models():
     cat_features_p = [
         'event_type_grouped',
         'event_cause',
-        'requires_road_closure',
+        'corridor',
+        'police_station_grouped',
         'veh_type_grouped',
         'day_of_week',
-        'zone',
     ]
 
     num_features_p = [
+        'latitude',
+        'longitude',
+        'location_cluster',
         'hour_of_day',
         'month',
         'is_peak_hour',
         'is_weekend',
+        'is_cascaded',
+        'cascade_size',
     ]
     features_p = cat_features_p + num_features_p
 

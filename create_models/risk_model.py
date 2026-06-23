@@ -50,17 +50,22 @@ def train_priority_model():
     cat_features = [
         'event_type_grouped',
         'event_cause',
-        'requires_road_closure',
+        'corridor',
+        'police_station_grouped',
         'veh_type_grouped',
         'day_of_week',
-        'zone',
     ]
 
     num_features = [
+        'latitude',
+        'longitude',
+        'location_cluster',
         'hour_of_day',
         'month',
         'is_peak_hour',
         'is_weekend',
+        'is_cascaded',
+        'cascade_size',
     ]
 
     features = cat_features + num_features
