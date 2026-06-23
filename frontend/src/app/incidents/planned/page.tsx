@@ -21,6 +21,14 @@ export default function PlannedEventPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [forecast, setForecast] = useState<any>(null);
 
+  // Feedback State
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [actualPriority, setActualPriority] = useState('low');
+  const [actualResolution, setActualResolution] = useState<number>(60);
+  const [actualClosure, setActualClosure] = useState(false);
+  const [feedbackResponse, setFeedbackResponse] = useState<any>(null);
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!location || !description) return;
@@ -32,6 +40,8 @@ export default function PlannedEventPage() {
         raw_transcript: `Planned Event: ${eventCause} at ${location}. Details: ${description}. Scale: ${scale}.`,
         location: location,
         corridor: corridor || location,
+        event_type_grouped: 'planned',
+        event_cause: eventCause,
       });
       
       // 2. Get historical context & resource recommendation via /dispatch
@@ -56,6 +66,29 @@ export default function PlannedEventPage() {
       alert('Failed to generate forecast.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forecast?.predict?.incident_id) return;
+    
+    setIsSubmittingFeedback(true);
+    try {
+      const res = await api.feedback.submitExtended({
+        incident_id: forecast.predict.incident_id,
+        actual_priority: actualPriority,
+        actual_resolution_time: actualResolution,
+        actual_closure: actualClosure,
+        officers_used: forecast.recommendedResources?.officers || 0,
+        barricades_used: forecast.recommendedResources?.barricades || 0,
+      });
+      setFeedbackResponse(res);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to submit feedback.');
+    } finally {
+      setIsSubmittingFeedback(false);
     }
   };
 
@@ -141,6 +174,11 @@ export default function PlannedEventPage() {
               <div className="bg-surface p-4 rounded-xl mb-6">
                 <div className="text-[11px] text-text-2 uppercase font-bold tracking-wider mb-2">Recommended Deployment</div>
                 <div className="text-sm text-accent mb-4">{forecast.recommendedResources?.justification}</div>
+                {forecast.recommendedResources?.suggested_diversion_route && (
+                  <div className="text-sm text-amber-500 font-medium mb-4 p-2 bg-amber-500/10 rounded border border-amber-500/20">
+                    {forecast.recommendedResources.suggested_diversion_route}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-3">
                     <div className="bg-bg p-2 rounded-lg"><Users size={16} /></div>
@@ -178,6 +216,60 @@ export default function PlannedEventPage() {
                 <div className="text-lg font-bold mb-2">{forecast.dispatch.recommended_station}</div>
                 <ReadinessBar score={forecast.dispatch.readiness_score} />
               </div>
+
+              {!showFeedback && !feedbackResponse && (
+                <button 
+                  onClick={() => setShowFeedback(true)}
+                  className="btn-outline mt-2 w-full flex justify-center items-center gap-2"
+                >
+                  <Clock size={16} /> Resolve Event & Submit Feedback
+                </button>
+              )}
+
+              {showFeedback && !feedbackResponse && (
+                <div className="card mt-4 border border-text-2/20">
+                  <h3 className="text-sm font-bold text-text-1 mb-4 flex items-center gap-2">
+                    Submit Post-Event Feedback
+                  </h3>
+                  <form onSubmit={handleFeedbackSubmit} className="flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="form-group">
+                        <label className="form-label">Actual Priority</label>
+                        <select className="select" value={actualPriority} onChange={e => setActualPriority(e.target.value)}>
+                          <option value="low">Low</option>
+                          <option value="high">High</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Actual Duration (mins)</label>
+                        <input type="number" className="form-input" required value={actualResolution} onChange={e => setActualResolution(Number(e.target.value))} />
+                      </div>
+                    </div>
+                    <div className="form-group flex items-center gap-2">
+                      <input type="checkbox" id="closure" checked={actualClosure} onChange={e => setActualClosure(e.target.checked)} />
+                      <label htmlFor="closure" className="text-sm">Road Closure Actually Required?</label>
+                    </div>
+                    <button type="submit" className="btn-primary mt-2" disabled={isSubmittingFeedback}>
+                      {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {feedbackResponse && (
+                <div className={`p-4 rounded-xl mt-4 border ${feedbackResponse.model_drift_alert ? 'bg-red-500/10 border-red-500/50' : 'bg-lime/10 border-lime/50'}`}>
+                  <h3 className={`text-sm font-bold mb-2 ${feedbackResponse.model_drift_alert ? 'text-red-400' : 'text-lime'}`}>
+                    {feedbackResponse.model_drift_alert ? '⚠️ Model Drift Alert Triggered' : '✅ Feedback Logged Successfully'}
+                  </h3>
+                  <div className="text-sm">
+                    {feedbackResponse.drift_reason ? (
+                      <span><strong>Reason:</strong> {feedbackResponse.drift_reason}</span>
+                    ) : (
+                      <span>Model predictions were within acceptable thresholds.</span>
+                    )}
+                  </div>
+                </div>
+              )}
 
             </div>
           </motion.div>

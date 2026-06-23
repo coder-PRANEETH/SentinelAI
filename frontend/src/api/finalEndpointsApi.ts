@@ -261,6 +261,7 @@ export interface DispatchResponse {
     vehicles: number;
     tow_trucks: number;
     barricades: number;
+    suggested_diversion_route?: string;
     justification: string;
   };
   historical_context: {
