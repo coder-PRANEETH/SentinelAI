@@ -6,7 +6,7 @@
  */
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL || 'https://sentinel-ai-and-models.onrender.com';
-const DIAGNOSTIC_PATHS = new Set(['/dispatch', '/historical-search', '/station-readiness']);
+const DIAGNOSTIC_PATHS = new Set(['/historical-search', '/station-readiness', '/dispatch']);
 
 // Fixed per-station resource caps from final_endpoints/models.py DEFAULT_RESOURCES.
 // Base capacity limits (API returns only current availability).
