@@ -1674,6 +1674,14 @@ def health():
         "service": "SentinelAI Unified API"
     })
 
+@app.route("/")
+def index():
+    return jsonify({
+        "status": "online",
+        "message": "SentinelAI Unified API is running",
+        "endpoints": ["/health", "/predict", "/stations", "/historical-search", "/dispatch", "/station-readiness"]
+    })
+
 
 # ── CatBoost Prediction ─────────────────────────────────────────────────────
 

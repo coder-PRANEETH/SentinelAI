@@ -12,7 +12,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "final_endpoints/models.py"
+      "dest": "/final_endpoints/models.py"
     }
   ]
 }
