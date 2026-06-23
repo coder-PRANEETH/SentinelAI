@@ -4,7 +4,7 @@ import { CopilotPanel } from '@/components/copilot/CopilotPanel';
 import { PageHeading } from '@/components/layout/PageHeading';
 import { api } from '@/lib/api';
 import { predict, PredictResponse, FinalApiError } from '@/api/finalEndpointsApi';
-import { Mic, MicOff, Type, Loader2, Play, Square, Volume2, VolumeX, RotateCcw, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Type, Loader2, Play, Square, Volume2, VolumeX, RotateCcw, MessageSquare, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWebSpeech } from '@/hooks/useWebSpeech';
 
@@ -533,22 +533,40 @@ export default function NewIncidentPage() {
 
   const isSubmitDisabled = (!corridor || !location) || predicting;
 
-  const renderFieldLabel = (field: string, label: string) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-      <span className="form-label">{label}</span>
-      {isExtracting && ['incidentType', 'vehicleType', 'corridor', 'location'].includes(field) && (
-        <span style={{ fontSize: '10px', color: '#B9E63F', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#111111', padding: '2px 6px', borderRadius: '4px' }}>
-          <Loader2 size={10} className="animate-spin" /> extracting...
-        </span>
-      )}
-      {!isExtracting && aiFilledFields.has(field) && !editedFields.has(field) && (
-        <span className="ai-badge">AI</span>
-      )}
-      {!isExtracting && editedFields.has(field) && (
-        <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>edited</span>
-      )}
-    </div>
-  );
+  const getFieldStyle = (field: string) => {
+    if (aiFilledFields.has(field) && !editedFields.has(field)) {
+      return { 
+        backgroundColor: '#f6fceb',
+        border: '1px solid #cce885',
+        boxShadow: 'inset 4px 0 0 #B9E63F'
+      };
+    }
+    return {};
+  };
+
+  const renderFieldLabel = (field: string, label: string) => {
+    const isAi = aiFilledFields.has(field) && !editedFields.has(field);
+    const isEdited = editedFields.has(field);
+    
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span className="form-label">{label}</span>
+        {isExtracting && ['incidentType', 'vehicleType', 'corridor', 'location', 'eventCause'].includes(field) && (
+          <span style={{ fontSize: '10px', color: '#B9E63F', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#111111', padding: '2px 6px', borderRadius: '4px' }}>
+            <Loader2 size={10} className="animate-spin" /> extracting...
+          </span>
+        )}
+        {!isExtracting && isAi && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: '#688c0a', fontWeight: 600 }}>
+            <Sparkles size={10} /> Auto-filled
+          </span>
+        )}
+        {!isExtracting && isEdited && (
+          <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>Edited</span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -621,30 +639,59 @@ export default function NewIncidentPage() {
                 </div>
 
                 {inputMode === 'dictation' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: '12px 0' }}>
-                    <button
-                      id="mic-toggle-btn"
-                      type="button"
-                      className={`mic-button ${isListening ? 'recording' : ''}`}
-                      onClick={toggleListening}
-                      title={isListening ? 'Stop recording' : 'Start recording'}
-                    >
-                      {isListening ? <MicOff size={24} color="#fff" /> : <Mic size={24} color="#151515" />}
-                    </button>
-                    {isListening && (
-                      <span style={{ fontSize: '12px', color: 'var(--p1)', fontWeight: 500 }}>
-                        Recording — click to stop
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    gap: '16px', 
+                    padding: '32px 24px',
+                    background: '#F8FAF6',
+                    borderRadius: '12px',
+                    border: '1px dashed #cce885',
+                    marginTop: '8px'
+                  }}>
+                    <div style={{ position: 'relative' }}>
+                      {isListening && (
+                        <div style={{
+                          position: 'absolute',
+                          top: -8, left: -8, right: -8, bottom: -8,
+                          borderRadius: '50%',
+                          background: '#B9E63F',
+                          opacity: 0.2,
+                          animation: 'pulse 1.5s infinite'
+                        }} />
+                      )}
+                      <button
+                        id="mic-toggle-btn"
+                        type="button"
+                        className={`mic-button ${isListening ? 'recording' : ''}`}
+                        onClick={toggleListening}
+                        title={isListening ? 'Stop recording' : 'Start recording'}
+                        style={{ position: 'relative', zIndex: 1, border: 'none', background: isListening ? '#E53E3E' : '#111111' }}
+                      >
+                        {isListening ? <MicOff size={24} color="#fff" /> : <Mic size={24} color="#fff" />}
+                      </button>
+                    </div>
+                    
+                    <div style={{ textAlign: 'center' }}>
+                      <span style={{ fontSize: '13px', color: isListening ? '#E53E3E' : 'var(--color-text-secondary)', fontWeight: 600 }}>
+                        {isListening ? 'Listening...' : 'Click to start dictation'}
                       </span>
-                    )}
-                    {webSpeechError && <span style={{ fontSize: '11px', color: 'var(--p1)' }}>{webSpeechError}</span>}
+                      {isListening && (
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '4px' }}>
+                          Speak your incident report clearly.
+                        </div>
+                      )}
+                    </div>
+                    {webSpeechError && <span style={{ fontSize: '11px', color: '#E53E3E' }}>{webSpeechError}</span>}
                   </div>
                 )}
 
 
-
                 {/* Transcript */}
-                <div className="form-group">
-                  <label htmlFor="transcript" className="form-label">
+                <div className="form-group" style={{ marginTop: '8px' }}>
+                  <label htmlFor="transcript" className="form-label" style={{ display: 'none' }}>
                     {inputMode === 'manual' ? 'Incident Description' : 'Live Transcript'}
                   </label>
                   <textarea
@@ -652,24 +699,35 @@ export default function NewIncidentPage() {
                     className="textarea"
                     value={transcript}
                     onChange={e => setTranscript(e.target.value)}
-                    placeholder={inputMode === 'manual' ? 'Describe the incident in detail…' : 'Transcript will appear here after recording…'}
-                    rows={5}
+                    placeholder={inputMode === 'manual' ? 'Describe the incident in detail (e.g., Heavy Vehicle Breakdown on Tumkur Road near Peenya Junction at 8:45 AM)...' : 'Transcript will appear here...'}
+                    rows={4}
+                    style={{
+                      background: '#F8FAF6',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '12px',
+                      padding: '16px',
+                      fontSize: '14px',
+                      lineHeight: '1.6',
+                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
+                      resize: 'none'
+                    }}
                   />
                 </div>
               </div>
 
               {/* Extracted Fields */}
-              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '4px' }}>
                   Incident Details
                 </h3>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                   <div className="form-group">
                     {renderFieldLabel('incidentType', 'Incident Type')}
                     <select
                       id="incident-type"
                       className="select"
+                      style={getFieldStyle('incidentType')}
                       value={incidentType}
                       onChange={e => handleFieldChange('incidentType', setIncidentType, e.target.value)}
                     >
@@ -683,6 +741,7 @@ export default function NewIncidentPage() {
                     <select
                       id="vehicle-type"
                       className="select"
+                      style={getFieldStyle('vehicleType')}
                       value={vehicleType}
                       onChange={e => handleFieldChange('vehicleType', setVehicleType, e.target.value)}
                     >
@@ -697,6 +756,7 @@ export default function NewIncidentPage() {
                   <select
                     id="corridor"
                     className="select"
+                    style={getFieldStyle('corridor')}
                     value={corridor}
                     onChange={e => handleFieldChange('corridor', setCorridor, e.target.value)}
                     required
@@ -712,6 +772,7 @@ export default function NewIncidentPage() {
                     id="location"
                     type="text"
                     className="input"
+                    style={{ ...getFieldStyle('location'), color: location ? 'inherit' : 'var(--color-text-tertiary)' }}
                     value={location}
                     onChange={e => handleFieldChange('location', setLocation, e.target.value)}
                     placeholder="e.g. Near Peenya Flyover, 2nd Junction"
@@ -725,6 +786,7 @@ export default function NewIncidentPage() {
                     id="event-cause"
                     type="text"
                     className="input"
+                    style={{ ...getFieldStyle('eventCause'), color: eventCause ? 'inherit' : 'var(--color-text-tertiary)' }}
                     value={eventCause}
                     onChange={e => handleFieldChange('eventCause', setEventCause, e.target.value)}
                     placeholder="e.g. Tyre burst, Engine failure"

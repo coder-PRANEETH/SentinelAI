@@ -57,6 +57,7 @@ def generate_incident_object(
     incident = {
         "incident_id": _generate_incident_id(),
         "event_type": extracted.get("event_type") or "unknown",
+        "event_cause": extracted.get("event_cause"),
         "vehicle_type": extracted.get("vehicle_type") or "unknown",
         "location_name": location_name,
         "corridor": extracted.get("road_name") or location.get("corridor"),

@@ -54,6 +54,8 @@ IMPORTANT RULES:
    - If city/state/country not mentioned, use defaults
    - Create location_query from all location hints combined
 5. Return ONLY valid JSON matching the exact schema below.
+6. Corridor (road_name) and Location/Junction (landmark/junction) must not be identical; Location/Junction should be the more specific landmark, junction, or sub-location mentioned, not a repeat of the corridor name.
+7. If event_cause is not explicitly labeled but can be inferred from context (e.g. "tyre burst", "engine failure"), extract it. Otherwise, leave it null.
 
 DEFAULT LOCATION (if not mentioned in report):
 - city: {DEFAULT_CITY}
@@ -81,6 +83,7 @@ VALID VEHICLE TYPES:
 Return JSON with these exact fields:
 {{
   "event_type": "string (one of the valid types above)",
+  "event_cause": "string or null (Attempt to infer from context if not explicit. e.g. tyre burst, engine failure, overheating)",
   "vehicle_type": "string (one of the valid types above)",
   "landmark": "string or null (specific building, station, mall)",
   "junction": "string or null (junction name if mentioned)",
@@ -118,6 +121,7 @@ Return JSON with these exact fields:
                 
                 # Ensure required fields exist with safe defaults
                 extracted.setdefault("event_type", "unknown")
+                extracted.setdefault("event_cause", None)
                 extracted.setdefault("vehicle_type", "unknown")
                 extracted.setdefault("landmark", None)
                 extracted.setdefault("junction", None)

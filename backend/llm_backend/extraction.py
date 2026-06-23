@@ -60,20 +60,23 @@ TRANSCRIPT: {transcript}
 Return ONLY a valid JSON object (no markdown, no explanation, just JSON) with this schema:
 {{
     "event_type": "accident | vehicle_breakdown | congestion | road_block | illegal_parking | fire | medical_emergency | unknown",
+    "event_cause": "string or null (Attempt to infer from context if not explicit. e.g. tyre burst, engine failure, overheating)",
     "vehicle_type": "two_wheeler | car | bus | truck | heavy_vehicle | unknown",
-    "landmark": "string or null",
-    "junction": "string or null",
-    "road_name": "string or null",
+    "landmark": "string or null (Specific building, station, mall)",
+    "junction": "string or null (Junction name if mentioned)",
+    "road_name": "string or null (Road or highway name)",
     "severity_indicators": ["array", "of", "indicators"],
     "time_mentioned": "string or null",
     "additional_notes": "string or null"
 }}
 
 Important:
-1. Return ONLY valid JSON, no additional text
-2. Be accurate and extract what is actually mentioned
-3. If unsure, use "unknown" or null
-4. Keep JSON compact and valid"""
+1. Return ONLY valid JSON, no additional text.
+2. Be accurate and extract what is actually mentioned.
+3. If unsure, use "unknown" or null. Do not fabricate information.
+4. Keep JSON compact and valid.
+5. Corridor (road_name) and Location/Junction (landmark/junction) must not be identical; Location/Junction should be the more specific landmark, junction, or sub-location mentioned, not a repeat of the corridor name.
+6. If event_cause is not explicitly labeled but can be inferred from context (e.g. "tyre burst", "engine failure"), extract it. Otherwise, leave it null."""
 
 
 def normalize_transcript(text: str) -> str:
