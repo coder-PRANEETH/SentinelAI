@@ -6,19 +6,19 @@ import Link from 'next/link';
 import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 
-const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
-  P1: { bg: '#FEE2E2', text: '#DC2626' },
-  P2: { bg: '#FEF3C7', text: '#D97706' },
-  P3: { bg: '#FEF9C3', text: '#A16207' },
-  P4: { bg: '#DBEAFE', text: '#1D4ED8' },
+const PRIORITY_COLORS: Record<string, { bg: string; text: string; iconBg: string; iconText: string }> = {
+  P1: { bg: '#EF4444', text: '#FFFFFF', iconBg: 'rgba(239, 68, 68, 0.15)', iconText: '#EF4444' },
+  P2: { bg: '#F59E0B', text: '#FFFFFF', iconBg: 'rgba(245, 158, 11, 0.15)', iconText: '#F59E0B' },
+  P3: { bg: '#EAB308', text: '#111111', iconBg: 'rgba(234, 179, 8, 0.15)', iconText: '#EAB308' },
+  P4: { bg: '#3B82F6', text: '#FFFFFF', iconBg: 'rgba(59, 130, 246, 0.15)', iconText: '#3B82F6' },
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
-  REPORTED: <AlertTriangle size={12} style={{ color: '#D97706' }} />,
-  UNDER_ASSESSMENT: <Clock size={12} style={{ color: '#6B7280' }} />,
-  RESOURCES_ASSIGNED: <Radio size={12} style={{ color: '#2563EB' }} />,
-  IN_PROGRESS: <Activity size={12} style={{ color: '#059669' }} />,
-  RESOLVED: <CheckCircle size={12} style={{ color: '#059669' }} />,
+  REPORTED: <AlertTriangle size={12} style={{ color: '#F59E0B' }} />,
+  UNDER_ASSESSMENT: <Clock size={12} style={{ color: '#A0A0A0' }} />,
+  RESOURCES_ASSIGNED: <Radio size={12} style={{ color: '#3B82F6' }} />,
+  IN_PROGRESS: <Activity size={12} style={{ color: '#10B981' }} />,
+  RESOLVED: <CheckCircle size={12} style={{ color: '#10B981' }} />,
 };
 
 function timeAgo(dateStr?: string): string {
@@ -64,47 +64,47 @@ export function RightPanel() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
         <Link href="/incidents/new" style={{ textDecoration: 'none' }}>
           <div className="right-panel-grid-item">
-            <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
-              <AlertTriangle size={15} style={{ color: '#6B7280' }} />
+            <div className="right-panel-grid-icon">
+              <AlertTriangle size={15} style={{ color: '#FFFFFF' }} />
             </div>
             <div style={{ lineHeight: 1.2 }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>{kpis?.active_incidents ?? '—'}</div>
-              <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#6B7280', fontWeight: 500 }}>Active</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{kpis?.active_incidents ?? '—'}</div>
+              <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#A0A0A0', fontWeight: 500 }}>Active</span>
             </div>
           </div>
         </Link>
 
         <Link href="/stations" style={{ textDecoration: 'none' }}>
           <div className="right-panel-grid-item">
-            <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
-              <Radio size={15} style={{ color: '#6B7280' }} />
+            <div className="right-panel-grid-icon">
+              <Radio size={15} style={{ color: '#FFFFFF' }} />
             </div>
             <div style={{ lineHeight: 1.2 }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>{kpis?.resources_deployed ?? '—'}</div>
-              <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#6B7280', fontWeight: 500 }}>Deployed</span>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>{kpis?.resources_deployed ?? '—'}</div>
+              <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#A0A0A0', fontWeight: 500 }}>Deployed</span>
             </div>
           </div>
         </Link>
 
         <div className="right-panel-grid-item" style={{ cursor: 'default' }}>
-          <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
-            <Clock size={15} style={{ color: '#6B7280' }} />
+          <div className="right-panel-grid-icon">
+            <Clock size={15} style={{ color: '#FFFFFF' }} />
           </div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#FFFFFF' }}>
               {kpis?.avg_resolution_minutes != null ? `${kpis.avg_resolution_minutes}m` : '—'}
             </div>
-            <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#6B7280', fontWeight: 500 }}>Avg Resolve</span>
+            <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#A0A0A0', fontWeight: 500 }}>Avg Resolve</span>
           </div>
         </div>
 
-        <div className="right-panel-grid-item" style={{ background: p1Count > 0 ? '#FEE2E2' : '#FFFFFF', borderColor: p1Count > 0 ? '#FECACA' : '#E5E5E5', cursor: 'default' }}>
-          <div className="right-panel-grid-icon" style={{ background: p1Count > 0 ? '#FFFFFF' : '#F3F4F6' }}>
-            <AlertTriangle size={15} style={{ color: p1Count > 0 ? '#DC2626' : '#6B7280' }} />
+        <div className="right-panel-grid-item" style={{ borderColor: p1Count > 0 ? '#EF4444' : '#2A2A2A', cursor: 'default' }}>
+          <div className="right-panel-grid-icon" style={{ background: p1Count > 0 ? 'rgba(239, 68, 68, 0.15)' : '#2A2A2A' }}>
+            <AlertTriangle size={15} style={{ color: p1Count > 0 ? '#EF4444' : '#A0A0A0' }} />
           </div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: 24, fontWeight: 900, color: p1Count > 0 ? '#DC2626' : '#111111' }}>{p1Count}</div>
-            <span className="right-panel-grid-label" style={{ fontSize: 11, color: p1Count > 0 ? '#DC2626' : '#6B7280', fontWeight: 700 }}>P1 Critical</span>
+            <div style={{ fontSize: 24, fontWeight: 900, color: p1Count > 0 ? '#EF4444' : '#FFFFFF' }}>{p1Count}</div>
+            <span className="right-panel-grid-label" style={{ fontSize: 11, color: p1Count > 0 ? '#EF4444' : '#A0A0A0', fontWeight: 700 }}>P1 Critical</span>
           </div>
         </div>
       </div>
@@ -131,7 +131,7 @@ export function RightPanel() {
         ) : (
           recentFive.map(inc => {
             const priority = inc.predicted_priority ?? 'P4';
-            const c = PRIORITY_COLORS[priority] ?? { bg: '#F3F4F6', text: '#6B7280' };
+            const c = PRIORITY_COLORS[priority] ?? { bg: '#2A2A2A', text: '#FFFFFF', iconBg: '#2A2A2A', iconText: '#A0A0A0' };
 
             return (
               <Link
@@ -142,8 +142,8 @@ export function RightPanel() {
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="right-panel-link-icon" style={{ background: c.bg, width: 24, height: 24, borderRadius: 6 }}>
-                      <Activity size={12} style={{ color: c.text }} />
+                    <div className="right-panel-link-icon" style={{ background: c.iconBg, width: 24, height: 24, borderRadius: 6 }}>
+                      <Activity size={12} style={{ color: c.iconText }} />
                     </div>
                     <span style={{
                       padding: '2px 8px', borderRadius: 9999,
@@ -153,13 +153,13 @@ export function RightPanel() {
                       {priority}
                     </span>
                   </div>
-                  <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}>{timeAgo(inc.created_at)}</span>
+                  <span style={{ fontSize: 11, color: '#A0A0A0', fontWeight: 500 }}>{timeAgo(inc.created_at)}</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111111', lineHeight: 1.3 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#FFFFFF', lineHeight: 1.3 }}>
                     {inc.incident_type || 'Unknown'}
                   </div>
-                  <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
+                  <div style={{ fontSize: 12, color: '#A0A0A0', fontWeight: 500 }}>
                     {inc.corridor || inc.location || inc.incident_id}
                   </div>
                 </div>
@@ -172,15 +172,15 @@ export function RightPanel() {
       {/* Pending actions */}
       {p1Count > 0 && (
         <div style={{
-          padding: '10px 14px', background: '#FEE2E2', borderRadius: 12,
-          border: '1px solid #FECACA',
+          padding: '10px 14px', background: 'rgba(239, 68, 68, 0.15)', borderRadius: 12,
+          border: '1px solid rgba(239, 68, 68, 0.3)',
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', marginBottom: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#EF4444', marginBottom: 4 }}>
             ⚠ {p1Count} Critical Incident{p1Count > 1 ? 's' : ''} Require Attention
           </div>
           <Link
             href={firstP1 ? `/incidents/${encodeURIComponent(firstP1.incident_id)}` : '/dashboard'}
-            style={{ fontSize: 11, color: '#DC2626', fontWeight: 600, textDecoration: 'none' }}
+            style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, textDecoration: 'none' }}
           >
             Review Now →
           </Link>

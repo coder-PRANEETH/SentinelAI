@@ -572,8 +572,8 @@ body {
   .right-panel {
     width: 260px;
     flex-shrink: 0;
-    background: #F5F5F3;
-    border-left: 1px solid #E5E5E5;
+    background: #111111;
+    border-left: 1px solid #222222;
     padding: 20px 16px;
     display: flex;
     flex-direction: column;
@@ -587,8 +587,8 @@ body {
   gap: 8px;
 }
 .right-panel-grid-item {
-  background: #FFFFFF;
-  border: 1px solid #E5E5E5;
+  background: #1A1A1A;
+  border: 1px solid #2A2A2A;
   border-radius: 14px;
   padding: 16px 12px;
   display: flex;
@@ -598,12 +598,12 @@ body {
   cursor: pointer;
   transition: background 0.12s;
 }
-.right-panel-grid-item:hover { background: #F5F5F3; }
+.right-panel-grid-item:hover { background: #242424; }
 .right-panel-grid-icon {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: #F5F5F3;
+  background: #2A2A2A;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -611,12 +611,12 @@ body {
 .right-panel-grid-label {
   font-size: 12px;
   font-weight: 600;
-  color: #111111;
+  color: #A0A0A0;
 }
 
 .right-panel-link {
-  background: #FFFFFF;
-  border: 1px solid #E5E5E5;
+  background: #1A1A1A;
+  border: 1px solid #2A2A2A;
   border-radius: 14px;
   padding: 14px;
   display: flex;
@@ -626,12 +626,12 @@ body {
   transition: background 0.12s;
   position: relative;
 }
-.right-panel-link:hover { background: #F5F5F3; }
+.right-panel-link:hover { background: #242424; }
 .right-panel-link-icon {
   width: 28px;
   height: 28px;
   border-radius: 7px;
-  background: #F5F5F3;
+  background: #2A2A2A;
   display: flex;
   align-items: center;
   justify-content: center;
