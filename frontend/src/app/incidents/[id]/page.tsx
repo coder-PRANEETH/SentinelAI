@@ -122,7 +122,7 @@ function AllocateModal({
   return (
     <div className="dialog-overlay" role="dialog" aria-modal="true">
       <div className="dialog-content" style={{ maxWidth: 480 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ fontSize: 17, fontWeight: 700 }}>Allocate Resources</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>
             <X size={18} />
@@ -131,7 +131,7 @@ function AllocateModal({
 
         {success ? (
           <div style={{ textAlign: 'center', padding: '32px 0' }}>
-            <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifycontent: 'center', margin: '0 auto 12px' }}>
+            <div style={{ width: 52, height: 52, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
               <Check size={24} style={{ color: '#059669' }} />
             </div>
             <div style={{ fontWeight: 700, fontSize: 16 }}>Resources Allocated</div>
@@ -178,7 +178,7 @@ function AllocateModal({
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 10, justifycontent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn-secondary" onClick={onClose} disabled={submitting}>Cancel</button>
               <button
                 className="btn-primary"
@@ -249,7 +249,7 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
 
   if (isLoading) {
     return (
-      <div className="card" style={{ padding: 24, display: 'flex', justifycontent: 'center' }}>
+      <div className="card" style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
         <LoadingState message="Generating AI station recommendation…" size="sm" />
       </div>
     );
@@ -268,7 +268,7 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
 
   return (
     <div className="card" style={{ background: 'var(--lime)', border: 'none' }}>
-      <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
         <div>
           <div style={{
             fontSize: '10px', fontWeight: 700, color: 'rgba(17,17,17,0.5)',
@@ -357,7 +357,7 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
               style={{
                 background: '#111111', color: '#FFFFFF', border: 'none', padding: '12px', borderRadius: '10px',
                 fontSize: '13px', fontWeight: 600, cursor: isDispatching ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', justifycontent: 'center', gap: 8, width: '100%'
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%'
               }}
             >
               {isDispatching ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
@@ -506,7 +506,7 @@ export default function IncidentDetailPage() {
           </button>
           <span
             style={{
-              display: 'inline-flex', alignItems: 'center', justifycontent: 'center',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               width: 36, height: 36, borderRadius: 10, backgroundColor: '#CDFF50', flexShrink: 0,
             }}
           >
@@ -524,7 +524,7 @@ export default function IncidentDetailPage() {
 
             {/* Header card */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifycontent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                     <PriorityBadge priority={priority} />
@@ -652,7 +652,7 @@ export default function IncidentDetailPage() {
 
                   {/* Road Closure Probability Gauge */}
                   <div style={{ background: '#F9FAFB', borderRadius: 14, padding: '14px 16px', gridColumn: 'span 2' }}>
-                    <div style={{ display: 'flex', justifycontent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         Road Closure Risk
                       </div>
@@ -663,7 +663,7 @@ export default function IncidentDetailPage() {
                     
                     {pred.road_closure_probability != null && (
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                           <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em', color: '#111111' }}>
                             {Math.round(pred.road_closure_probability * 100)}%
                           </span>
@@ -733,7 +733,7 @@ export default function IncidentDetailPage() {
                 )}
               </div>
             ) : (
-              <div className="card" style={{ display: 'flex', alignItems: 'center', justifycontent: 'center', gap: 8, color: '#9CA3AF', fontSize: 13, height: 100 }}>
+              <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#9CA3AF', fontSize: 13, height: 100 }}>
                 <MapPin size={16} /> No location data available for this incident
               </div>
             )}
@@ -767,7 +767,7 @@ export default function IncidentDetailPage() {
                       onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifycontent: 'space-between', marginBottom: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 9999, fontSize: 10, fontWeight: 700,
                           background: PRIORITY_COLORS[c.priority]?.bg ?? '#F3F4F6',
