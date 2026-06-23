@@ -1285,14 +1285,46 @@ def search_similar_incidents(
     search_started = time.perf_counter()
     scores_array = sk_cosine_similarity(query_vec, _tfidf_matrix).flatten()
 
-    # Boost event_cause for planned events
+    # ── Synonym Mapping for Event Causes ─────────────────────────────────────
+    synonyms = {
+        "rally": "public_event",
+        "march": "public_event",
+        "gathering": "public_event",
+        "demonstration": "protest",
+        "vip movement": "vip_movement",
+        "vip visit": "vip_movement",
+        "convoy": "vip_movement",
+        "construction work": "construction",
+        "roadwork": "construction",
+        "digging": "construction",
+        "festival": "public_event",
+    }
+    all_causes = ["vehicle_breakdown", "pot_holes", "construction", "water_logging", 
+                  "accident", "tree_fall", "road_conditions", "congestion", 
+                  "public_event", "procession", "vip_movement", "protest", "debris"]
+
     query_lower = query.lower()
-    if "planned event" in query_lower:
-        for cause in ["public_event", "procession", "vip_movement", "protest", "construction"]:
-            if cause in query_lower:
-                mask = _hist_df["event_cause"].str.lower() == cause
-                # Apply 0.6 * cause_match (1.0) + 0.4 * text_similarity
-                scores_array[mask] = (0.6 * 1.0) + (0.4 * scores_array[mask])
+    resolved_cause = None
+
+    # Check exact categories first
+    for cause in all_causes:
+        if cause.replace("_", " ") in query_lower or cause in query_lower:
+            resolved_cause = cause
+            break
+
+    # Check synonyms if no exact match
+    if not resolved_cause:
+        for syn, mapped_cause in synonyms.items():
+            if syn in query_lower:
+                resolved_cause = mapped_cause
+                break
+
+    exact_cause_match = False
+    if resolved_cause:
+        exact_cause_match = True
+        mask = _hist_df["event_cause"].str.lower() == resolved_cause
+        # Apply 0.6 * cause_match (1.0) + 0.4 * text_similarity
+        scores_array[mask] = (0.6 * 1.0) + (0.4 * scores_array[mask])
 
     # argsort ascending → take last top_k and reverse for descending order
     top_indices = scores_array.argsort()[-top_k:][::-1]
@@ -1346,6 +1378,7 @@ def search_similar_incidents(
         "average_resolution_time": round(avg_res_time, 1) if avg_res_time else None,
         "historical_priority":     most_common_priority,
         "most_common_outcome":     most_common_outcome,
+        "exact_cause_match":       exact_cause_match,
     }
 
     elapsed = time.perf_counter() - started_at
