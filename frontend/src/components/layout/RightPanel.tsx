@@ -53,7 +53,9 @@ export function RightPanel() {
   }
 
   const recentFive = (incidents || []).slice(0, 5);
-  const p1Count = (incidents || []).filter(i => i.predicted_priority === 'P1').length;
+  const p1Incidents = (incidents || []).filter(i => i.predicted_priority === 'P1' || i.predicted_priority === 'High');
+  const p1Count = p1Incidents.length;
+  const firstP1 = p1Incidents.length > 0 ? p1Incidents[0] : null;
 
   return (
     <aside className="right-panel">
@@ -174,7 +176,7 @@ export function RightPanel() {
             ⚠ {p1Count} Critical Incident{p1Count > 1 ? 's' : ''} Require Attention
           </div>
           <Link
-            href="/dashboard"
+            href={firstP1 ? `/incidents/${encodeURIComponent(firstP1.incident_id)}` : '/dashboard'}
             style={{ fontSize: 11, color: '#DC2626', fontWeight: 600, textDecoration: 'none' }}
           >
             Review Now →

@@ -13,11 +13,22 @@ export function StatisticsPanel({ data }: { data: TrendData[] }) {
   // We need values between 0 and 1. We'll find max to normalize.
   const maxVal = Math.max(...(data.map(d => d.count) || [0]), 10);
 
-  const chartData = data.map((d, i) => ({
-    label: d.date,
-    value: d.count / maxVal,
-    highlighted: i === data.length - 1, // highlight the last one
-  }));
+  const chartData = data.map((d, i) => {
+    let displayDate = d.date;
+    if (typeof displayDate === 'string' && displayDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const parts = displayDate.split('-');
+      const m = parseInt(parts[1], 10);
+      const day = parseInt(parts[2], 10);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      displayDate = `${months[m - 1]} ${day}`;
+    }
+
+    return {
+      label: displayDate,
+      value: d.count / maxVal,
+      highlighted: i === data.length - 1, // highlight the last one
+    };
+  });
 
   return (
     <div style={{ padding: '4px' }}>
