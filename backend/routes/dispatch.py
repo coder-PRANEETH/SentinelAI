@@ -15,6 +15,7 @@ from models.base import db
 from models.incidents import Incident
 from models.dispatches import Dispatch
 from models.audit_logs import AuditLog
+from models.stations import Station  # FIX 3: moved from inside handler
 from services.readiness_service import readiness_service
 from middleware.rbac import require_role
 from utils.validators import DispatchSchema, is_valid_uuid
@@ -80,16 +81,18 @@ def create_dispatch():
     tow_trucks = resources.get("tow_trucks", 0)
     barricades = resources.get("barricades", 0)
 
+    allocated_resources = {
+        "officers": officers,
+        "vehicles": vehicles,
+        "tow_trucks": tow_trucks,
+        "barricades": barricades,
+    }
+
     # Atomic resource allocation
     try:
         readiness_service.allocate_resources(
             station_id=station_id,
-            resources={
-                "officers": officers,
-                "vehicles": vehicles,
-                "tow_trucks": tow_trucks,
-                "barricades": barricades,
-            },
+            resources=allocated_resources,
             incident_id=incident_id,
             operator_id=user_id,
         )
@@ -136,11 +139,28 @@ def create_dispatch():
     incident.updated_at = datetime.now(timezone.utc)
     db.session.add(incident)
 
-    db.session.commit()
+    # FIX 1: If commit fails, roll back the resource allocation so station
+    # state stays consistent. Without this, resources are consumed permanently
+    # with no corresponding dispatch record.
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        readiness_service.deallocate_resources(
+            station_id=station_id,
+            resources=allocated_resources,
+            incident_id=incident_id,
+        )
+        logger.exception(f"[Dispatch] Commit failed for {incident_id} → {station_id}; resources released.")
+        return jsonify({"error": "INTERNAL_ERROR", "message": "Dispatch could not be saved. No resources were consumed.", "details": {}}), 500
+
+    # FIX 2: Refresh so server-side defaults (e.g. dispatched_at) are populated
+    # before we access them. Without this, dispatched_at may be None and
+    # .isoformat() raises AttributeError.
+    db.session.refresh(dispatch)
+
     logger.info(f"[Dispatch] {dispatch_id} created for {incident_id} → {station_id}")
 
-    # Fetch updated station
-    from models.stations import Station
     updated_station = Station.query.filter_by(station_id=station_id).first()
 
     return jsonify({
@@ -158,4 +178,4 @@ def create_dispatch():
         "dispatch_override": is_override,
         "station_readiness": float(updated_station.readiness_score) if updated_station else None,
         "dispatched_at": dispatch.dispatched_at.isoformat(),
-    }), 200
+    }), 201  # FIX 4: 201 Created, not 200
