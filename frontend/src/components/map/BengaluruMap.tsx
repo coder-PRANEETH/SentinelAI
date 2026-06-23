@@ -716,11 +716,12 @@ export function BengaluruMap({
       {/* Layer controls */}
       {showLayerControls && (
         <div style={{
-          position: 'absolute', bottom: '48px', left: '24px',
-          background: '#111111', border: '1px solid #333333',
-          borderRadius: '16px', padding: '16px',
-          display: 'flex', flexDirection: 'column', gap: '12px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+          position: 'absolute', bottom: '12px', left: '12px',
+          background: 'rgba(17, 17, 17, 0.85)', backdropFilter: 'blur(8px)',
+          border: '1px solid #333333',
+          borderRadius: '14px', padding: '12px 16px',
+          display: 'flex', flexDirection: 'column', gap: '8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
           zIndex: 10,
           animation: 'layerControlSlide 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards 0.2s',
         }}>

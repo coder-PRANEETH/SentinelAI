@@ -265,10 +265,10 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
       
       {/* Legend Block */}
       <div style={{
-        position: 'absolute', bottom: '24px', right: '24px',
-        background: 'rgba(17, 17, 17, 0.9)', backdropFilter: 'blur(8px)',
-        border: '1px solid #333333', borderRadius: '10px', padding: '10px 14px',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10,
+        position: 'absolute', bottom: '12px', left: '12px',
+        background: 'rgba(17, 17, 17, 0.85)', backdropFilter: 'blur(8px)',
+        border: '1px solid #333333', borderRadius: '14px', padding: '10px 14px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.5)', zIndex: 10,
         display: 'flex', flexDirection: 'column', gap: '6px'
       }}>
         <span style={{ fontSize: '10px', fontWeight: 600, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
