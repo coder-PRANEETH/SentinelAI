@@ -719,7 +719,7 @@ export default function NewIncidentPage() {
                       
                       {webSpeechError && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '6px 12px', background: '#FEF2F2', borderRadius: '6px', border: '1px solid #FECACA' }}>
-                          <span style={{ fontSize: '12px', color: '#B91C1C', fontWeight: 500 }}>Connection issue — please check your network and try again.</span>
+                          <span style={{ fontSize: '12px', color: '#B91C1C', fontWeight: 500 }}>{webSpeechError === 'not-allowed' ? 'Microphone access denied. Please check permissions.' : webSpeechError}</span>
                         </div>
                       )}
                     </div>

@@ -36,8 +36,8 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
             setError('Microphone disconnected or unavailable. Please check your device.');
             setIsListening(false);
           } else if (event.error === 'network') {
-            setError('Connection issue. Please check your internet and try again.');
-            setIsListening(false);
+            // Ignore non-fatal network hiccups that Chrome usually recovers from
+            // without actually killing the dictation stream.
           } else if (event.error === 'not-allowed' || event.error === 'permission-denied') {
             setError('Microphone access denied. Please check permissions.');
             setIsListening(false);

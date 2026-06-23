@@ -29,7 +29,7 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         
         recognitionRef.current.onerror = (event: any) => {
           console.error('Speech recognition error', event.error);
-          if (event.error !== 'no-speech') {
+          if (event.error !== 'no-speech' && event.error !== 'network') {
             setError(event.error);
             setIsListening(false);
           }
