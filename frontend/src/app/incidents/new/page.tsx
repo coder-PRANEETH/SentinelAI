@@ -117,6 +117,52 @@ export default function NewIncidentPage() {
   const { isListening, error: webSpeechError, toggleListening } = useWebSpeech({
     onTranscript: (t) => setTranscript(prev => prev ? prev + ' ' + t : t)
   });
+  
+  const [isExtracting, setIsExtracting] = useState(false);
+  const prevIsListening = useRef(isListening);
+
+  useEffect(() => {
+    if (prevIsListening.current === true && isListening === false) {
+      // Dictation just stopped
+      if (transcript.trim().length > 0) {
+        setIsExtracting(true);
+        api.predict.extractFields(transcript).then((res) => {
+          if (res.success && res.incident) {
+            const filled = new Set(aiFilledFields);
+            const { event_type, vehicle_type, corridor: extractedCorridor, location_name, road_name } = res.incident;
+            
+            if (event_type && event_type !== 'unknown') {
+              const mappedType = mapEventTypeToIncidentType(event_type);
+              if (mappedType) {
+                setIncidentType(mappedType);
+                filled.add('incidentType');
+              }
+            }
+            if (vehicle_type && vehicle_type !== 'unknown') {
+              const mappedVeh = mapVehicleTypeToVehicleType(vehicle_type);
+              if (mappedVeh) {
+                setVehicleType(mappedVeh);
+                filled.add('vehicleType');
+              }
+            }
+            if (extractedCorridor) {
+              setCorridor(extractedCorridor);
+              filled.add('corridor');
+            }
+            const loc = location_name || road_name;
+            if (loc && loc !== 'unknown') {
+              setLocation(loc);
+              filled.add('location');
+            }
+            setAiFilled(filled);
+          }
+        }).catch(err => console.error("Extraction failed", err))
+          .finally(() => setIsExtracting(false));
+      }
+    }
+    prevIsListening.current = isListening;
+  }, [isListening, transcript, aiFilledFields]);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   // Websocket and recording refs (Interactive Voice Assistant)
@@ -486,10 +532,15 @@ export default function NewIncidentPage() {
   const renderFieldLabel = (field: string, label: string) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
       <span className="form-label">{label}</span>
-      {aiFilledFields.has(field) && !editedFields.has(field) && (
+      {isExtracting && ['incidentType', 'vehicleType', 'corridor', 'location'].includes(field) && (
+        <span style={{ fontSize: '10px', color: '#B9E63F', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#111111', padding: '2px 6px', borderRadius: '4px' }}>
+          <Loader2 size={10} className="animate-spin" /> extracting...
+        </span>
+      )}
+      {!isExtracting && aiFilledFields.has(field) && !editedFields.has(field) && (
         <span className="ai-badge">AI</span>
       )}
-      {editedFields.has(field) && (
+      {!isExtracting && editedFields.has(field) && (
         <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>edited</span>
       )}
     </div>

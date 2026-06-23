@@ -9,7 +9,7 @@
  */
 
 const FLASK_BASE = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5001';
-const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_URL || 'http://localhost:8000';
+const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_URL || 'https://sentinelai-h7ib.onrender.com';
 
 export type ApiError = {
   error: string;
@@ -141,6 +141,12 @@ export const api = {
         body: formData,
       }, true); // useFastApi = true
     },
+    extractFields: (transcript: string) =>
+      request<{ success: boolean; incident: any; extracted: any }>('/voice-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript }),
+      }, true), // useFastApi = true
   },
 
   // ─── Stations ──────────────────────────────────────────────────────────────
