@@ -53,7 +53,7 @@ export default function VoiceReportPage() {
   }, [chatHistory]);
 
   const getWsUrl = () => {
-    const url = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+    const url = process.env.NEXT_PUBLIC_API_BASE_URL || "https://sentinelai-h7ib.onrender.com";
     return url.replace(/^http/, "ws") + "/ws/voice-call";
   };
 
