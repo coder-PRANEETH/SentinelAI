@@ -11,6 +11,8 @@ import {
 } from '@/api/finalEndpointsApi';
 import { useSearchParams } from 'next/navigation';
 import { ArrowUpCircle, ArrowDownCircle, Loader2, Package } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 /**
  * Resource Command Center.
@@ -115,9 +117,13 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
           </>
         } />
       )}
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
           {/* Station selector */}
-          <div style={{ marginBottom: '20px', maxWidth: '400px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ marginBottom: '20px', maxWidth: '400px' }}>
             <div className="form-group">
               <label className="form-label">Select Station</label>
               <select
@@ -133,19 +139,28 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                 ))}
               </select>
             </div>
-          </div>
+          </motion.div>
 
           {!selectedStation && (
-            <div style={{ marginTop: '48px' }}>
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ marginTop: '48px' }}>
               <EmptyState message="Select a station from the dropdown above to view and manage its inventory." />
-            </div>
+            </motion.div>
           )}
 
-          {selectedStation && isLoading && <LoadingState message="Loading station data…" />}
+          {selectedStation && isLoading && (
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="flex flex-col gap-4 p-4 card max-w-[900px]">
+              <Skeleton height={40} />
+              <Skeleton height={40} />
+              <Skeleton height={40} />
+            </motion.div>
+          )}
           {selectedStation && error && <ErrorState message="Failed to load station." onRetry={mutate} />}
 
           {station && (
-            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '900px' }}>
+            <motion.div 
+              variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
+              className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '900px' }}
+            >
               <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ fontSize: '14px', fontWeight: 700 }}>{station.station_name}</h2>
                 <span style={{ fontSize: '12px', color: 'var(--muted)' }}>
@@ -163,13 +178,13 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                     <th style={{ minWidth: '220px' }}>Action</th>
                   </tr>
                 </thead>
-                <tbody>
+                <motion.tbody initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {resourceRows.map(row => {
                     const deployed = row.total - row.available;
                     const allocating = actionLoading === `${row.type}-allocate`;
                     const releasing = actionLoading === `${row.type}-release`;
                     return (
-                      <tr key={row.type}>
+                      <motion.tr variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }} key={row.type} className="hover:bg-gray-50 transition-colors">
                         <td style={{ fontWeight: 500 }}>{row.label}</td>
                         <td>{row.total}</td>
                         <td style={{ color: 'var(--muted)' }}>{row.available}</td>
@@ -183,13 +198,14 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                               min={1}
                               value={actionQty[row.type] ?? '1'}
                               onChange={e => setActionQty(prev => ({ ...prev, [row.type]: e.target.value }))}
-                              className="form-input"
-                              style={{ width: '56px', padding: '6px 8px', borderRadius: '8px', fontSize: '13px', height: 'auto' }}
+                              className="form-input transition-all focus:ring-2 focus:ring-gray-300"
+                              style={{ width: '56px', padding: '6px 8px', borderRadius: '8px', fontSize: '13px', height: 'auto', outline: 'none' }}
                             />
                             <button
                               onClick={() => runAction(row.type, row.label, 'allocate')}
                               disabled={allocating || releasing}
                               title="Allocate (deduct from available)"
+                              className="hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
                               style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: '9999px', background: '#FFFFFF', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#111111' }}
                             >
                               {allocating ? <Loader2 size={12} className="animate-spin" /> : <ArrowUpCircle size={12} />} Allocate
@@ -198,34 +214,37 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                               onClick={() => runAction(row.type, row.label, 'release')}
                               disabled={allocating || releasing}
                               title="Release (return to available)"
+                              className="hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
                               style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: '9999px', background: '#FFFFFF', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#111111' }}
                             >
                               {releasing ? <Loader2 size={12} className="animate-spin" /> : <ArrowDownCircle size={12} />} Release
                             </button>
                           </div>
                         </td>
-                      </tr>
+                      </motion.tr>
                     );
                   })}
-                </tbody>
+                </motion.tbody>
               </table>
 
-              {actionError && (
-                <div style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--p1)' }}>{actionError}</div>
-              )}
-              {actionSuccess && (
-                <div style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--ok)' }}>{actionSuccess}</div>
-              )}
-            </div>
+              <AnimatePresence>
+                {actionError && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--p1)' }}>{actionError}</motion.div>
+                )}
+                {actionSuccess && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ padding: '8px 20px', fontSize: '12px', color: 'var(--ok)' }}>{actionSuccess}</motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           )}
-      </div>
+      </motion.div>
     </>
   );
 }
 
 export default function ResourcesPage({ hideHeading = false }: { hideHeading?: boolean } = {}) {
   return (
-    <Suspense fallback={<LoadingState message="Loading resources..." />}>
+    <Suspense fallback={<div className="flex flex-col gap-4"><Skeleton height={60} /><Skeleton height={60} /><Skeleton height={60} /></div>}>
       <ResourcesContent hideHeading={hideHeading} />
     </Suspense>
   );

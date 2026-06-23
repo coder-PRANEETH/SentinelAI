@@ -4,12 +4,13 @@ import useSWRImmutable from 'swr/immutable';
 import { api } from '@/lib/api';
 import { useStations } from '@/hooks/useStations';
 import { PageHeading } from '@/components/layout/PageHeading';
-import { LoadingState } from '@/components/shared/LoadingState';
+import { Skeleton } from '@/components/shared/Skeleton';
+import { motion } from 'framer-motion';
 import { Map as MapIcon } from 'lucide-react';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
-  { ssr: false, loading: () => <div className="card h-full flex items-center justify-center"><LoadingState message="Loading map…" /></div> }
+  { ssr: false, loading: () => <div className="card h-full flex items-center justify-center p-0 overflow-hidden"><Skeleton width="100%" height="100%" /></div> }
 );
 
 function useActiveIncidents() {
@@ -42,7 +43,12 @@ export default function MapPage() {
         </>
       } />
 
-      <div className="flex-1 px-7 pb-7">
+      <motion.div 
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="flex-1 px-7 pb-7"
+      >
         <div style={{ position: 'relative', height: '100%' }}>
           <div className="card" style={{ padding: 0, position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <BengaluruMap
@@ -52,7 +58,7 @@ export default function MapPage() {
             />
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

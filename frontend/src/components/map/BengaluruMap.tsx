@@ -39,6 +39,15 @@ function createStationMarker(readinessScore: number, stationName: string): HTMLE
     z-index: 5;
   `;
 
+  const innerWrapper = document.createElement('div');
+  innerWrapper.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    animation: sentinelMarkerPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
+  `;
+
   // Distinct Shield/Badge shape for station
   const badge = document.createElement('div');
   badge.innerHTML = `
@@ -72,8 +81,9 @@ function createStationMarker(readinessScore: number, stationName: string): HTMLE
     letter-spacing: 0.02em;
   `;
 
-  wrapper.appendChild(badge);
-  wrapper.appendChild(label);
+  innerWrapper.appendChild(badge);
+  innerWrapper.appendChild(label);
+  wrapper.appendChild(innerWrapper);
   return wrapper;
 }
 
@@ -106,6 +116,14 @@ if (typeof document !== 'undefined') {
         50%  { transform: scale(1.6); opacity: 0.2; }
         100% { transform: scale(0.8); opacity: 0.0; }
       }
+      @keyframes sentinelMarkerPop {
+        0%   { transform: scale(0) translateY(10px); opacity: 0; }
+        100% { transform: scale(1) translateY(0); opacity: 1; }
+      }
+      @keyframes layerControlSlide {
+        from { opacity: 0; transform: translateY(15px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
     `;
     document.head.appendChild(s);
   }
@@ -135,6 +153,17 @@ function createIncidentMarker(priority: string, status?: string, highlighted = f
     will-change: transform;
     ${highlighted ? 'filter: drop-shadow(0 0 8px ' + color + ');' : ''}
     z-index: ${highlighted ? 10 : 1};
+  `;
+
+  const innerWrapper = document.createElement('div');
+  innerWrapper.style.cssText = `
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: sentinelMarkerPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
   `;
 
   // Pulsing halo — faster for P1 or highlighted
@@ -173,9 +202,10 @@ function createIncidentMarker(priority: string, status?: string, highlighted = f
     z-index: 1;
   `;
 
-  wrapper.appendChild(pulse);
-  wrapper.appendChild(ring);
-  wrapper.appendChild(dot);
+  innerWrapper.appendChild(pulse);
+  innerWrapper.appendChild(ring);
+  innerWrapper.appendChild(dot);
+  wrapper.appendChild(innerWrapper);
   return wrapper;
 }
 
@@ -690,6 +720,7 @@ export function BengaluruMap({
           display: 'flex', flexDirection: 'column', gap: '12px',
           boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
           zIndex: 10,
+          animation: 'layerControlSlide 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards 0.2s',
         }}>
           <span style={{ fontSize: '11px', fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Map Layers

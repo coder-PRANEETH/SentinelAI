@@ -5,6 +5,7 @@ import { PageHeading } from '@/components/layout/PageHeading';
 import { api } from '@/lib/api';
 import { predict, PredictResponse, FinalApiError } from '@/api/finalEndpointsApi';
 import { Mic, MicOff, Type, Loader2, Play, Square, Volume2, VolumeX, RotateCcw, MessageSquare } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const INCIDENT_TYPES = [
   'Vehicle Breakdown', 'Road Blockage', 'Fallen Tree',
@@ -527,7 +528,7 @@ export default function NewIncidentPage() {
   return (
     <>
       <PageHeading title="New Incident" />
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: '24px', maxWidth: '1280px' }}>
             {/* LEFT: Input form */}
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -842,17 +843,26 @@ export default function NewIncidentPage() {
               </div>
 
               {/* Errors */}
-              {submitError && (
-                <div style={{ padding: '10px 14px', background: 'rgba(229,62,62,0.08)', border: '1px solid rgba(229,62,62,0.2)', borderRadius: '8px', fontSize: '12px', color: 'var(--p1)' }}>
-                  {submitError}
-                </div>
-              )}
+              <AnimatePresence>
+                {submitError && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }} 
+                    animate={{ opacity: 1, height: 'auto' }} 
+                    exit={{ opacity: 0, height: 0 }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <div style={{ padding: '10px 14px', background: 'rgba(229,62,62,0.08)', border: '1px solid rgba(229,62,62,0.2)', borderRadius: '8px', fontSize: '12px', color: 'var(--p1)', marginTop: '8px', marginBottom: '8px' }}>
+                      {submitError}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Submit */}
               <button
                 id="submit-incident"
                 type="submit"
-                className="btn-primary"
+                className={`btn-primary hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-400 focus:outline-none ${predicting ? 'opacity-80' : ''}`}
                 disabled={isSubmitDisabled}
                 style={{ alignSelf: 'flex-start', minWidth: '160px' }}
               >
@@ -872,7 +882,7 @@ export default function NewIncidentPage() {
               />
             </div>
           </div>
-      </div>
+      </motion.div>
     </>
   );
 }

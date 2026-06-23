@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { ShieldCheck, Loader2 } from 'lucide-react';
 import type { ApiError } from '@/lib/api';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function LoginPage() {
   const { login, isLoading } = useAuth();
@@ -37,7 +38,7 @@ export default function LoginPage() {
       justifyContent: 'center',
       padding: '24px',
     }}>
-      <div style={{ width: '100%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} style={{ width: '100%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
         {/* Brand */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
@@ -65,38 +66,45 @@ export default function LoginPage() {
             <div className="form-group">
               <label htmlFor="username" className="form-label">Username</label>
               <input
-                id="username" type="text" className="form-input"
+                id="username" type="text"
                 value={username} onChange={e => setUsername(e.target.value)}
                 placeholder="Enter your username"
                 autoComplete="username" required
-                style={{ borderRadius: '9999px', height: '44px', paddingLeft: '18px' }}
+                className="form-input transition-all focus:ring-2 focus:ring-gray-300"
+                style={{ borderRadius: '9999px', height: '44px', paddingLeft: '18px', outline: 'none' }}
               />
             </div>
 
             <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label htmlFor="password" className="form-label">Password</label>
               <input
-                id="password" type="password" className="form-input"
+                id="password" type="password"
                 value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="Enter your password"
                 autoComplete="current-password" required
-                style={{ borderRadius: '9999px', height: '44px', paddingLeft: '18px' }}
+                className="form-input transition-all focus:ring-2 focus:ring-gray-300"
+                style={{ borderRadius: '9999px', height: '44px', paddingLeft: '18px', outline: 'none' }}
               />
             </div>
 
-            {error && (
-              <div style={{
-                padding: '10px 14px',
-                background: 'rgba(229,62,62,0.08)',
-                border: '1px solid rgba(229,62,62,0.18)',
-                borderRadius: '10px', fontSize: '12px', color: 'var(--err)',
-              }}>
-                {error}
-              </div>
-            )}
+            <AnimatePresence>
+              {error && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} style={{ overflow: 'hidden' }}>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: 'rgba(229,62,62,0.08)',
+                    border: '1px solid rgba(229,62,62,0.18)',
+                    borderRadius: '10px', fontSize: '12px', color: 'var(--err)',
+                    marginTop: '4px', marginBottom: '4px',
+                  }}>
+                    {error}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <button
-              id="login-submit" type="submit" className="btn-accent"
+              id="login-submit" type="submit" className={`btn-accent hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none ${isLoading ? 'opacity-80' : ''}`}
               disabled={isLoading}
               style={{ width: '100%', justifyContent: 'center', padding: '12px 24px', marginTop: '8px', height: '44px', display: 'flex', alignItems: 'center', gap: '8px' }}
             >
@@ -116,6 +124,7 @@ export default function LoginPage() {
 
           <button
             id="demo-login" type="button"
+            className="hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
             disabled={isLoading}
             onClick={() => {
               setUsername('admin');
@@ -128,7 +137,7 @@ export default function LoginPage() {
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '12px 24px', borderRadius: '9999px', border: '1px solid #E5E5E5',
               background: '#FFFFFF', color: '#111111', fontSize: '13px', fontWeight: 600,
-              cursor: 'pointer', transition: 'background 0.15s', height: '44px'
+              cursor: 'pointer', height: '44px'
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = '#F5F5F3'}
             onMouseLeave={(e) => e.currentTarget.style.background = '#FFFFFF'}
@@ -140,7 +149,7 @@ export default function LoginPage() {
         <p style={{ fontSize: '11px', color: '#6B6B6B', textAlign: 'center' }}>
           Bengaluru Traffic Police — Authorized Personnel Only
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }

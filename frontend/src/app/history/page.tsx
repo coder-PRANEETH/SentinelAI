@@ -5,7 +5,9 @@ import { LoadingState, EmptyState } from '@/components/shared/LoadingState';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { historicalSearch, HistoricalSearchResponse } from '@/api/finalEndpointsApi';
 import type { FinalApiError } from '@/api/finalEndpointsApi';
-import { Search, AlertTriangle, ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { Search, AlertTriangle, ChevronDown, ChevronRight, Clock, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 /**
  * Historical Incident Viewer.
@@ -76,10 +78,14 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
           </>
         } />
       )}
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
 
           {/* Search bar */}
-          <form onSubmit={handleSearch} style={{ marginBottom: '24px' }}>
+          <motion.form variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} onSubmit={handleSearch} style={{ marginBottom: '24px' }}>
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               <div style={{ flex: 1, position: 'relative' }}>
                 <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
@@ -96,11 +102,11 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
               <button
                 id="historical-search-submit"
                 type="submit"
-                className="btn-accent"
-                style={{ height: '42px', display: 'flex', alignItems: 'center' }}
+                className="btn-accent hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
+                style={{ height: '42px', display: 'flex', alignItems: 'center', gap: '8px' }}
                 disabled={query.trim().length < 3 || isSearching}
               >
-                {isSearching ? 'Searching…' : 'Search'}
+                {isSearching ? <><Loader2 size={14} className="animate-spin" /> Searching…</> : 'Search'}
               </button>
             </div>
             {query.length > 0 && query.length < 3 && (
@@ -108,7 +114,7 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                 Type at least 3 characters to search.
               </p>
             )}
-          </form>
+          </motion.form>
 
           {/* Error */}
           {error && (
@@ -118,11 +124,17 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
           )}
 
           {/* Loading */}
-          {isSearching && <LoadingState message="Searching historical incidents…" />}
+          {isSearching && (
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card flex flex-col gap-4 p-6">
+              <Skeleton height={40} />
+              <Skeleton height={40} />
+              <Skeleton height={40} />
+            </motion.div>
+          )}
 
           {/* Results */}
           {results && !isSearching && (
-            <>
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}>
               {/* Low confidence warning */}
               {results.low_confidence_warning && (
                 <div className="warning-banner" style={{ marginBottom: '16px' }}>
@@ -156,13 +168,13 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                         <th></th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <motion.tbody initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                       {results.similar_cases.map((c, i) => (
-                        <>
-                          <tr
-                            key={i}
+                        <AnimatePresence key={i} initial={false}>
+                          <motion.tr
+                            variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                             onClick={() => setExpandedRow(expandedRow === i ? null : i)}
-                            style={{ cursor: 'pointer' }}
+                            className="hover:bg-gray-50 transition-colors cursor-pointer"
                           >
                             <td><SimilarityBar score={c.similarity_score} /></td>
                             <td style={{ fontWeight: 500 }}>{c.corridor || '—'}</td>
@@ -177,35 +189,44 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                                 ? <ChevronDown size={14} style={{ color: 'var(--muted)' }} />
                                 : <ChevronRight size={14} style={{ color: 'var(--muted)' }} />}
                             </td>
-                          </tr>
+                          </motion.tr>
                           {expandedRow === i && (
-                            <tr key={`expanded-${i}`}>
-                              <td colSpan={7} style={{ background: 'var(--bg)', padding: '16px 20px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', fontSize: '12px' }}>
-                                  <div><span style={{ color: 'var(--muted)' }}>Junction:</span> {c.junction || '—'}</div>
-                                  <div><span style={{ color: 'var(--muted)' }}>Police Station:</span> {c.police_station || '—'}</div>
-                                  <div><span style={{ color: 'var(--muted)' }}>Status:</span> {c.status || '—'}</div>
-                                  <div><span style={{ color: 'var(--muted)' }}>Similarity:</span> {Math.round(c.similarity_score * 100)}%</div>
-                                </div>
+                            <tr>
+                              <td colSpan={7} style={{ padding: 0 }}>
+                                <motion.div 
+                                  initial={{ height: 0, opacity: 0 }} 
+                                  animate={{ height: 'auto', opacity: 1 }} 
+                                  exit={{ height: 0, opacity: 0 }} 
+                                  style={{ background: 'var(--bg)', padding: '16px 20px', overflow: 'hidden' }}
+                                >
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', fontSize: '12px' }}>
+                                    <div><span style={{ color: 'var(--muted)' }}>Junction:</span> {c.junction || '—'}</div>
+                                    <div><span style={{ color: 'var(--muted)' }}>Police Station:</span> {c.police_station || '—'}</div>
+                                    <div><span style={{ color: 'var(--muted)' }}>Status:</span> {c.status || '—'}</div>
+                                    <div><span style={{ color: 'var(--muted)' }}>Similarity:</span> {Math.round(c.similarity_score * 100)}%</div>
+                                  </div>
+                                </motion.div>
                               </td>
                             </tr>
                           )}
-                        </>
+                        </AnimatePresence>
                       ))}
-                    </tbody>
+                    </motion.tbody>
                   </table>
                 </div>
               )}
-            </>
+            </motion.div>
           )}
 
           {/* Initial state */}
           {!results && !isSearching && (
-            <EmptyState
-              message="Enter a query to search historical incidents. Try corridor names, incident types, or vehicle descriptions."
-            />
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}>
+              <EmptyState
+                message="Enter a query to search historical incidents. Try corridor names, incident types, or vehicle descriptions."
+              />
+            </motion.div>
           )}
-      </div>
+      </motion.div>
     </>
   );
 }

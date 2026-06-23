@@ -16,10 +16,12 @@ import useSWRImmutable from 'swr/immutable';
 import { api, Incident } from '@/lib/api';
 import { listStationReadiness } from '@/api/finalEndpointsApi';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
-  { ssr: false, loading: () => <div className="card h-[420px] flex items-center justify-center"><LoadingState message="Loading map…" /></div> }
+  { ssr: false, loading: () => <div className="card h-[420px]"><Skeleton height={420} /></div> }
 );
 
 const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
@@ -41,12 +43,16 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
   }, [onClose]);
 
   return (
-    <div style={{
+    <motion.div 
+      initial={{ opacity: 0, y: 50, scale: 0.9 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.95 }}
+      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+      style={{
       position: 'fixed', bottom: 24, right: 24, zIndex: 99999,
       background: '#111111', borderRadius: 18, padding: '16px 20px',
       boxShadow: '0 8px 40px rgba(0,0,0,0.35)', width: 340,
       display: 'flex', flexDirection: 'column', gap: 10,
-      animation: 'slideUp 0.3s ease',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -58,7 +64,7 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
             🚨 New Incident
           </span>
         </div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#6B7280', cursor: 'pointer' }}>
+        <button onClick={onClose} className="hover:bg-white/10 p-1 rounded-md transition-colors" style={{ border: 'none', color: '#6B7280', cursor: 'pointer' }}>
           <X size={14} />
         </button>
       </div>
@@ -86,6 +92,7 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
 
       <Link
         href={`/incidents/${incident.incident_id}`}
+        className="hover:scale-105 active:scale-95 transition-transform"
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '8px 14px', background: '#CDFF50', borderRadius: 9999,
@@ -95,7 +102,7 @@ function IncidentToast({ incident, onClose }: { incident: Incident; onClose: () 
       >
         View Incident <ExternalLink size={12} />
       </Link>
-    </div>
+    </motion.div>
   );
 }
 
@@ -196,8 +203,13 @@ export default function DashboardPage() {
       <div className="flex-1 px-7 pb-7 grid grid-cols-12 gap-4 overflow-auto">
 
           {/* ── ROW 1: Live Incident Queue (primary focus, full width) ── */}
-          <div className="col-span-8">
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.3 }}
+            className="col-span-8 card overflow-hidden" 
+            style={{ padding: 0 }}
+          >
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <h3 className="text-sm font-bold text-text-1">Live Incident Queue</h3>
@@ -216,6 +228,7 @@ export default function DashboardPage() {
                     <button
                       onClick={() => setTestToast(TEST_INCIDENT)}
                       title="Test incident notification"
+                      className="hover:bg-gray-100 hover:border-gray-400 active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
                       style={{
                         display: 'flex', alignItems: 'center', gap: 5,
                         padding: '4px 10px', borderRadius: 9999, fontSize: 11,
@@ -226,7 +239,7 @@ export default function DashboardPage() {
                       <Bell size={11} /> Test Alert
                     </button>
                   )}
-                  <Link href="/incidents/new" className="text-xs text-text-2 flex items-center gap-1 no-underline hover:text-text-1">
+                  <Link href="/incidents/new" className="text-xs text-text-2 flex items-center gap-1 no-underline hover:text-text-1 hover:-translate-y-0.5 transition-transform">
                     New <ArrowUpRight size={14} />
                   </Link>
                 </div>
@@ -241,10 +254,18 @@ export default function DashboardPage() {
                     <th>Status</th>
                   </tr>
                 </thead>
-                <tbody>
+                <motion.tbody
+                  initial="hidden"
+                  animate="visible"
+                  variants={{
+                    hidden: { opacity: 0 },
+                    visible: { opacity: 1, transition: { staggerChildren: 0.05 } }
+                  }}
+                >
                   {(activeIncidents || []).slice(0, 8).map(inc => (
-                    <tr
+                    <motion.tr
                       key={inc.incident_id}
+                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                       onClick={() => {
                         if (inc.latitude && inc.longitude) {
                           setHighlightedIncidentId(prev =>
@@ -253,6 +274,11 @@ export default function DashboardPage() {
                         } else {
                           router.push(`/incidents/${inc.incident_id}`);
                         }
+                      }}
+                      className="hover:bg-gray-50 transition-colors focus:outline-none"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                         if (e.key === 'Enter') router.push(`/incidents/${inc.incident_id}`);
                       }}
                       style={{
                         cursor: 'pointer',
@@ -266,20 +292,35 @@ export default function DashboardPage() {
                       <td className="text-text-2">{inc.corridor}</td>
                       <td><StatusBadge priority={inc.predicted_priority as any} /></td>
                       <td><StatusBadge status={inc.status as any} /></td>
-                    </tr>
+                    </motion.tr>
                   ))}
                   {(!activeIncidents || activeIncidents.length === 0) && (
-                    <tr>
-                      <td colSpan={5}><EmptyState message="No active incidents" /></td>
-                    </tr>
+                    <motion.tr variants={{ hidden: { opacity: 0 }, visible: { opacity: 1 } }}>
+                      <td colSpan={5}>
+                        {!activeIncidents ? (
+                          <div className="flex flex-col gap-3 p-4">
+                            <Skeleton height={40} />
+                            <Skeleton height={40} />
+                            <Skeleton height={40} />
+                          </div>
+                        ) : (
+                          <EmptyState message="No active incidents" />
+                        )}
+                      </td>
+                    </motion.tr>
                   )}
-                </tbody>
+                </motion.tbody>
               </table>
-            </div>
-          </div>
+            </motion.div>
 
           {/* Map — right side, spans 2 rows */}
-          <div className="col-span-4 row-span-2" style={{ position: 'relative', minHeight: '400px' }}>
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+            className="col-span-4 row-span-2" 
+            style={{ position: 'relative', minHeight: '400px' }}
+          >
             <div className="card" style={{ padding: 0, position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <BengaluruMap
                 stations={stations}
@@ -297,10 +338,15 @@ export default function DashboardPage() {
                 }}
               />
             </div>
-          </div>
+          </motion.div>
 
           {/* ── ROW 2: Stat cards ── */}
-          <div className="col-span-8 grid grid-cols-2 gap-4 items-stretch">
+          <motion.div 
+            initial="hidden" 
+            animate="visible" 
+            variants={{ visible: { transition: { staggerChildren: 0.15, delayChildren: 0.2 } } }}
+            className="col-span-8 grid grid-cols-2 gap-4 items-stretch"
+          >
             <StatCard
               icon={AlertTriangle}
               title="Active Incidents"
@@ -321,17 +367,33 @@ export default function DashboardPage() {
               variant="accent"
               isLoading={isKpisLoading}
             />
-          </div>
+          </motion.div>
 
           {/* ── ROW 3: Statistics chart ── */}
-          <div className="col-span-4">
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.4 }}
+            className="col-span-4"
+          >
             <div className="card">
-              {isTrendsLoading ? <LoadingState message="Loading trend data…" /> : <StatisticsPanel data={trendData} />}
+              {isTrendsLoading ? (
+                <div className="flex items-center justify-center h-full min-h-[200px]">
+                  <Skeleton width="100%" height={200} />
+                </div>
+              ) : (
+                <StatisticsPanel data={trendData} />
+              )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Emerging Hotspots */}
-          <div className="col-span-4">
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.4 }}
+            className="col-span-4"
+          >
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <h3 className="text-sm font-bold text-text-1" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -339,13 +401,18 @@ export default function DashboardPage() {
                 </h3>
               </div>
               {isRiskZonesLoading ? (
-                <LoadingState message="Loading risk zones…" size="sm" />
+                <div className="flex flex-col gap-3 p-4">
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                </div>
               ) : (
-                <div>
+                <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {topRiskZones.map(zone => (
-                    <div
+                    <motion.div
+                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                       key={zone.corridor}
-                      className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised transition-colors"
+                      className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised hover:translate-x-1 transition-all"
                       onClick={() => router.push('/stations')}
                     >
                       <div className="flex justify-between items-center mb-1">
@@ -366,31 +433,41 @@ export default function DashboardPage() {
                         </span>
                         <span className="text-[11px] font-mono text-text-2">{zone.incident_count_30d} incidents</span>
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                   {topRiskZones.length === 0 && <EmptyState message="No emerging risks detected" />}
-                </div>
+                </motion.div>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Station Readiness */}
-          <div className="col-span-4">
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5, duration: 0.4 }}
+            className="col-span-4"
+          >
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="flex items-center justify-between p-5 border-b border-border">
                 <h3 className="text-sm font-bold text-text-1">Station Readiness</h3>
-                <Link href="/stations" className="text-xs text-text-2 flex items-center gap-1 no-underline hover:text-text-1">
+                <Link href="/stations" className="text-xs text-text-2 flex items-center gap-1 no-underline hover:text-text-1 hover:-translate-y-0.5 transition-transform">
                   All <ArrowUpRight size={14} />
                 </Link>
               </div>
               {isReadinessLoading ? (
-                <LoadingState message="Loading…" size="sm" />
+                <div className="flex flex-col gap-3 p-4">
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                </div>
               ) : (
-                <div>
+                <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {top5.map(station => (
-                    <div
+                    <motion.div
+                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                       key={station.station}
-                      className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised transition-colors"
+                      className="flex flex-col gap-2 p-4 border-b border-border cursor-pointer hover:bg-surface-raised hover:translate-x-1 transition-all"
                       onClick={() => router.push('/stations')}
                     >
                       <div className="flex justify-between items-center">
@@ -398,21 +475,23 @@ export default function DashboardPage() {
                         <span className="text-[11px] text-text-2">{station.active_incidents} active</span>
                       </div>
                       <ReadinessBar score={Number(station.readiness_score)} />
-                    </div>
+                    </motion.div>
                   ))}
                   {top5.length === 0 && <EmptyState message="No station data" />}
-                </div>
+                </motion.div>
               )}
             </div>
-          </div>
+          </motion.div>
         </div>
       {/* Real-time notification toasts */}
-      {newIncident && (
-        <IncidentToast incident={newIncident} onClose={clearNewIncident} />
-      )}
-      {testToast && (
-        <IncidentToast incident={testToast} onClose={() => setTestToast(null)} />
-      )}
+      <AnimatePresence>
+        {newIncident && (
+          <IncidentToast incident={newIncident} onClose={clearNewIncident} />
+        )}
+        {testToast && (
+          <IncidentToast incident={testToast} onClose={() => setTestToast(null)} />
+        )}
+      </AnimatePresence>
 
       {/* Slide-up animation */}
       <style>{`

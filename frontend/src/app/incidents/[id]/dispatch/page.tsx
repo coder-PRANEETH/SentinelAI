@@ -10,6 +10,8 @@ import {
   FinalApiError,
 } from '@/api/finalEndpointsApi';
 import { Check, AlertTriangle, Loader2, Users, Car, Truck, Shield } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 interface RecommendationInputs {
   incidentText: string;
@@ -111,7 +113,15 @@ export default function DispatchPage() {
     }
   };
 
-  if (isLoading) return <PageShell incidentId={incidentId}><LoadingState message="Loading dispatch recommendation…" /></PageShell>;
+  if (isLoading) return (
+    <PageShell incidentId={incidentId}>
+      <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="flex flex-col gap-4 p-4 card max-w-[820px]">
+        <Skeleton height={120} />
+        <Skeleton height={150} />
+        <Skeleton height={80} />
+      </motion.div>
+    </PageShell>
+  );
   if (loadError) return <PageShell incidentId={incidentId}><ErrorState message={loadError} onRetry={() => mutate()} /></PageShell>;
 
   if (dispatchSuccess) return (
@@ -136,11 +146,15 @@ export default function DispatchPage() {
   return (
     <>
       <PageHeading title={`Dispatch — ${incidentId}`} />
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
           <div style={{ maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             {/* Recommendation inputs */}
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Recommendation Inputs
               </div>
@@ -154,14 +168,14 @@ export default function DispatchPage() {
                   <input className="form-input" value={corridor} onChange={e => setCorridor(e.target.value)} placeholder="e.g. Tumkur Road" />
                 </div>
               </div>
-              <button className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={handleGetRecommendation}>
+              <button className="btn-secondary hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none" style={{ alignSelf: 'flex-start' }} onClick={handleGetRecommendation}>
                 Get Recommendation
               </button>
-            </div>
+            </motion.div>
 
             {/* Recommended station */}
             {result && (
-              <div className="card" style={{ background: 'var(--lime)', border: 'none' }}>
+              <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ background: 'var(--lime)', border: 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                   <div>
                     <div style={{
@@ -194,12 +208,12 @@ export default function DispatchPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* Resource package */}
             {result?.dispatch.recommended_resources && (
-              <div className="card">
+              <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card">
                 <div style={{
                   fontSize: '11px', fontWeight: 700, color: 'var(--muted)',
                   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '16px',
@@ -227,12 +241,12 @@ export default function DispatchPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* Historical context */}
             {result?.dispatch.historical_context && (
-              <div className="card" style={{ padding: '12px 16px' }}>
+              <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ padding: '12px 16px' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                   Historical Context
                 </div>
@@ -242,11 +256,11 @@ export default function DispatchPage() {
                   Common priority: <strong>{result.dispatch.historical_context.historical_priority ?? 'Unknown'}</strong> &nbsp;·&nbsp;
                   Common outcome: <strong>{result.dispatch.historical_context.most_common_outcome ?? 'Unknown'}</strong>
                 </div>
-              </div>
+              </motion.div>
             )}
 
             {/* Candidate comparison */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{
                 padding: '14px 20px', borderBottom: '1px solid var(--border)',
                 fontSize: '12px', fontWeight: 700, color: 'var(--muted)',
@@ -288,7 +302,7 @@ export default function DispatchPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </motion.div>
 
             {/* Error */}
             {dispatchError && (
@@ -304,10 +318,10 @@ export default function DispatchPage() {
             )}
 
             {/* Action buttons */}
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ display: 'flex', gap: '10px' }}>
               <button
                 id="confirm-dispatch-btn"
-                className="btn-accent"
+                className="btn-accent hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
                 style={{ flex: 1, justifyContent: 'center', padding: '14px', fontSize: '14px' }}
                 onClick={() => setShowConfirm(true)}
                 disabled={!recommendedStation}
@@ -316,18 +330,25 @@ export default function DispatchPage() {
               </button>
               <button
                 id="override-dispatch-btn"
-                className="btn-secondary"
+                className="btn-secondary hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none"
                 onClick={() => setShowOverrideDrawer(true)}
               >
                 Override →
               </button>
-            </div>
+            </motion.div>
           </div>
 
           {/* Confirmation dialog */}
+          <AnimatePresence>
           {showConfirm && recommendedStation && recommendedResources && (
             <div className="dialog-overlay" role="dialog" aria-modal="true">
-              <div className="dialog-content">
+              <motion.div 
+                initial={{ opacity: 0, y: 20, scale: 0.95 }} 
+                animate={{ opacity: 1, y: 0, scale: 1 }} 
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="dialog-content"
+              >
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '20px' }}>
                   <div style={{
                     width: 36, height: 36, borderRadius: '10px',
@@ -349,12 +370,12 @@ export default function DispatchPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                  <button className="btn-secondary" onClick={() => setShowConfirm(false)} disabled={isDispatching}>
+                  <button className="btn-secondary hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none" onClick={() => setShowConfirm(false)} disabled={isDispatching}>
                     Cancel
                   </button>
                   <button
                     id="confirm-dispatch-dialog"
-                    className="btn-danger"
+                    className="btn-danger hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-red-300 focus:outline-none"
                     onClick={handleConfirmDispatch}
                     disabled={isDispatching}
                   >
@@ -363,15 +384,23 @@ export default function DispatchPage() {
                       : 'Confirm Dispatch'}
                   </button>
                 </div>
-              </div>
+              </motion.div>
             </div>
           )}
+          </AnimatePresence>
 
           {/* Override drawer */}
+          <AnimatePresence>
           {showOverrideDrawer && (
             <>
-              <div className="drawer-overlay" onClick={() => setShowOverrideDrawer(false)} />
-              <div className="drawer">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="drawer-overlay" onClick={() => setShowOverrideDrawer(false)} />
+              <motion.div 
+                initial={{ opacity: 0, x: 50 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: 50 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="drawer"
+              >
                 <h3 style={{ fontSize: '17px', fontWeight: 700 }}>Override Dispatch</h3>
                 <p style={{ fontSize: '12px', color: 'var(--muted)' }}>
                   Select an alternate station and provide a mandatory reason. Minimum 20 characters.
@@ -411,12 +440,12 @@ export default function DispatchPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button className="btn-secondary" onClick={() => setShowOverrideDrawer(false)} style={{ flex: 1 }}>
+                  <button className="btn-secondary hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none" onClick={() => setShowOverrideDrawer(false)} style={{ flex: 1 }}>
                     Cancel
                   </button>
                   <button
                     id="confirm-override-btn"
-                    className="btn-danger"
+                    className="btn-danger hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-red-300 focus:outline-none"
                     onClick={handleOverrideDispatch}
                     disabled={overrideReason.length < 20 || !overrideStation || isDispatching}
                     style={{ flex: 1 }}
@@ -424,10 +453,11 @@ export default function DispatchPage() {
                     {isDispatching ? <Loader2 size={13} className="animate-spin" /> : 'Override & Dispatch'}
                   </button>
                 </div>
-              </div>
+              </motion.div>
             </>
           )}
-      </div>
+          </AnimatePresence>
+      </motion.div>
     </>
   );
 }

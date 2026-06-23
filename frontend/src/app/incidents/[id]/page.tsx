@@ -14,16 +14,18 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/shared/Loadin
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api, IncidentDetail, Incident } from '@/lib/api';
 import { listStationReadiness, getStation, allocateResources, historicalSearch, getDispatchRecommendation, simulateRipple, FinalApiError } from '@/api/finalEndpointsApi';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 // Dynamically import maps to prevent canvas SSR render blockages
 const BengaluruMap = dynamic(
   () => import('@/components/map/BengaluruMap').then(m => m.BengaluruMap),
-  { ssr: false, loading: () => <div className="card" style={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState message="Loading map…" /></div> }
+  { ssr: false, loading: () => <div className="card" style={{ height: 320 }}><Skeleton height={300} /></div> }
 );
 
 const RippleMap = dynamic(
   () => import('@/components/layout/Ripplemap'),
-  { ssr: false, loading: () => <div className="card" style={{ height: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState message="Loading simulation map…" /></div> }
+  { ssr: false, loading: () => <div className="card" style={{ height: 500 }}><Skeleton height={480} /></div> }
 );
 
 // ── High-Density Bangalore Sub-Junction Database ───────────────────────────
@@ -121,10 +123,17 @@ function AllocateModal({
 
   return (
     <div className="dialog-overlay" role="dialog" aria-modal="true">
-      <div className="dialog-content" style={{ maxWidth: 480 }}>
+      <motion.div 
+        initial={{ opacity: 0, y: 15, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="dialog-content" 
+        style={{ maxWidth: 480 }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <h3 style={{ fontSize: 17, fontWeight: 700 }}>Allocate Resources</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>
+          <button onClick={onClose} className="hover:bg-gray-100 p-1 rounded-md transition-colors" style={{ border: 'none', cursor: 'pointer', color: '#6B7280' }}>
             <X size={18} />
           </button>
         </div>
@@ -142,11 +151,19 @@ function AllocateModal({
               Select a station to allocate available resources to incident <strong>{incidentId}</strong>.
             </p>
 
-            {isLoading ? <LoadingState size="sm" /> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {isLoading ? (
+              <div className="flex flex-col gap-2 mb-4">
+                <Skeleton height={60} />
+                <Skeleton height={60} />
+                <Skeleton height={60} />
+              </div>
+            ) : (
+              <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {candidates.map(s => (
-                  <label
+                  <motion.label
+                    variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                     key={s.station}
+                    className="hover:bg-gray-50 transition-colors"
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
                       border: `2px solid ${selected === s.station ? '#111111' : '#E5E5E5'}`,
@@ -167,9 +184,9 @@ function AllocateModal({
                         Readiness: {Math.round(Number(s.readiness_score))} · {s.available_officers} officers · {s.available_vehicles} vehicles
                       </div>
                     </div>
-                  </label>
+                  </motion.label>
                 ))}
-              </div>
+              </motion.div>
             )}
 
             {err && (
@@ -192,7 +209,7 @@ function AllocateModal({
             </div>
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -249,9 +266,9 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
 
   if (isLoading) {
     return (
-      <div className="card" style={{ padding: 24, display: 'flex', justifyContent: 'center' }}>
-        <LoadingState message="Generating AI station recommendation…" size="sm" />
-      </div>
+      <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}>
+        <Skeleton height={180} />
+      </motion.div>
     );
   }
 
@@ -472,9 +489,11 @@ export default function IncidentDetailPage() {
     return (
       <>
         <PageHeading title="Incident Detail" />
-        <div className="flex-1 px-7 pb-7 flex items-center justify-center">
-          <LoadingState message="Loading incident…" size="lg" />
-        </div>
+        <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="flex flex-col gap-4 p-4 card max-w-[820px] mx-auto mt-8">
+          <Skeleton height={120} />
+          <Skeleton height={150} />
+          <Skeleton height={80} />
+        </motion.div>
       </>
     );
   }
@@ -516,11 +535,18 @@ export default function IncidentDetailPage() {
         </>
       } />
 
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, maxWidth: 1200 }}>
 
           {/* ── Left column ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <motion.div 
+            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
 
             {/* Header card */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -737,10 +763,13 @@ export default function IncidentDetailPage() {
                 <MapPin size={16} /> No location data available for this incident
               </div>
             )}
-          </div>
+          </motion.div>
 
           {/* ── Right column — Historical incidents ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <motion.div 
+            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #E5E5E5' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#A0A0A0', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -752,20 +781,18 @@ export default function IncidentDetailPage() {
               </div>
 
               {histLoading ? (
-                <LoadingState size="sm" message="Searching similar cases…" />
+                <div className="flex flex-col gap-2 p-4">
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                  <Skeleton height={50} />
+                </div>
               ) : historicalData && historicalData.similar_cases && historicalData.similar_cases.length > 0 ? (
-                <div>
+                <motion.div initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {historicalData.similar_cases.map((c, i) => (
-                    <div
+                    <motion.div
                       key={i}
-                      style={{
-                        padding: '12px 20px',
-                        borderBottom: '1px solid #E5E5E5',
-                        cursor: 'default',
-                        transition: 'background 0.12s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#F9FAFB')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
+                      className="hover:bg-gray-50 transition-colors border-b border-border p-3 px-5 cursor-pointer"
                     >
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{
@@ -788,7 +815,7 @@ export default function IncidentDetailPage() {
                           <Clock size={10} /> Resolved in {c.resolution_mins} min
                         </div>
                       )}
-                    </div>
+                    </motion.div>
                   ))}
 
                   {historicalData.average_resolution_time && (
@@ -801,7 +828,7 @@ export default function IncidentDetailPage() {
                       </div>
                     </div>
                   )}
-                </div>
+                </motion.div>
               ) : (
                 <EmptyState message="No similar historical incidents found." />
               )}
@@ -816,15 +843,17 @@ export default function IncidentDetailPage() {
 
                 <Link
                   href={`/feedback?incident_id=${incidentId}`}
-                  style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#F9FAFB', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#111111', border: '1px solid #E5E5E5' }}
+                  className="hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-300 focus:outline-none flex items-center gap-2 p-2.5 bg-gray-50 rounded-xl text-sm font-medium text-gray-900 border border-gray-200"
+                  style={{ textDecoration: 'none' }}
                 >
-                  <Check size={14} style={{ color: '#6B7280' }} /> Submit Feedback
+                  <Check size={14} className="text-gray-500" /> Submit Feedback
                 </Link>
 
                 {incident.corridor && incident.prediction?.road_closure_probability && incident.prediction.road_closure_probability > 0.1 ? (
                   <button
                     onClick={handleSimulateRipple}
                     disabled={isSimulating}
+                    className="hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-yellow-300 focus:outline-none"
                     style={{ cursor: isSimulating ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FEF3C7', borderRadius: 10, fontSize: 13, fontWeight: 500, color: '#92400E', border: '1px solid #FDE68A' }}
                   >
                     {isSimulating ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} style={{ color: '#D97706' }} />} Simulate Traffic Ripple
@@ -842,14 +871,16 @@ export default function IncidentDetailPage() {
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Allocate resources modal */}
-      {showAllocate && (
-        <AllocateModal incidentId={incidentId} onClose={() => setShowAllocate(false)} />
-      )}
+      <AnimatePresence>
+        {showAllocate && (
+          <AllocateModal incidentId={incidentId} onClose={() => setShowAllocate(false)} />
+        )}
+      </AnimatePresence>
     </>
   );
 }

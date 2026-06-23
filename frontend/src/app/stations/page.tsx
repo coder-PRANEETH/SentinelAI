@@ -6,6 +6,8 @@ import { PageHeading } from '@/components/layout/PageHeading';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { LoadingState, ErrorState } from '@/components/shared/LoadingState';
 import { useStations } from '@/hooks/useStations';
+import { motion } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 type FilterLevel = 'all' | 'high' | 'mid' | 'low';
 
@@ -56,10 +58,14 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
           </>
         } />
       )}
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
 
           {/* ── Page heading ─────────────────────────────────────────────── */}
-          <div style={{ marginBottom: '24px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ marginBottom: '24px' }}>
             <h2 style={{
               fontSize: '26px', fontWeight: 800, color: 'var(--ink)',
               letterSpacing: '-0.03em',
@@ -69,13 +75,16 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
             <p className="section-sub" style={{ marginTop: '4px' }}>
               {filtered.length} of {stations.length} stations
             </p>
-          </div>
+          </motion.div>
 
           {/* ── Controls ─────────────────────────────────────────────────── */}
-          <div style={{
-            display: 'flex', gap: '10px', marginBottom: '20px',
-            alignItems: 'center', flexWrap: 'wrap',
-          }}>
+          <motion.div 
+            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
+            style={{
+              display: 'flex', gap: '10px', marginBottom: '20px',
+              alignItems: 'center', flexWrap: 'wrap',
+            }}
+          >
             {/* Search */}
             <div style={{ position: 'relative', maxWidth: '280px', flex: '1 1 200px' }}>
               <Search size={14} style={{
@@ -105,12 +114,21 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
                 </button>
               ))}
             </div>
-          </div>
+          </motion.div>
 
           {/* ── Table ────────────────────────────────────────────────────── */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <motion.div 
+            variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}
+            className="card" style={{ padding: 0, overflow: 'hidden' }}
+          >
             {isLoading ? (
-              <LoadingState message="Loading stations…" />
+              <div className="flex flex-col gap-4 p-6">
+                <Skeleton height={32} />
+                <Skeleton height={32} />
+                <Skeleton height={32} />
+                <Skeleton height={32} />
+                <Skeleton height={32} />
+              </div>
             ) : error ? (
               <ErrorState message="Failed to load stations." onRetry={mutate} />
             ) : (
@@ -126,11 +144,13 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
                     <th>Active Inc.</th>
                   </tr>
                 </thead>
-                <tbody>
+                <motion.tbody initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {filtered.map(station => (
-                    <tr
+                    <motion.tr
+                      variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
                       key={station.station_id}
                       onClick={() => router.push(`/resources?station=${station.station_id}`)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
                     >
                       <td style={{ fontWeight: 600 }}>{station.station_name}</td>
                       <td>
@@ -160,13 +180,13 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
                           {station.active_incidents}
                         </span>
                       </td>
-                    </tr>
+                    </motion.tr>
                   ))}
-                </tbody>
+                </motion.tbody>
               </table>
             )}
-          </div>
-      </div>
+          </motion.div>
+      </motion.div>
     </>
   );
 }

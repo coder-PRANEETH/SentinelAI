@@ -6,7 +6,8 @@ import { LoadingState } from '@/components/shared/LoadingState';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api } from '@/lib/api';
 import { getDispatchRecommendation, getStation } from '@/api/finalEndpointsApi';
-import { Users, Shield, MapPin, Calendar, Clock, AlertTriangle } from 'lucide-react';
+import { Users, Shield, MapPin, Calendar, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function PlannedEventPage() {
   const router = useRouter();
@@ -61,7 +62,7 @@ export default function PlannedEventPage() {
   return (
     <>
       <PageHeading title="Log Planned Event" />
-      <div className="flex-1 px-7 pb-7 overflow-auto flex gap-6">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto flex gap-6">
         
         {/* Form Column */}
         <div className="flex-1 flex flex-col gap-6 max-w-2xl">
@@ -104,17 +105,24 @@ export default function PlannedEventPage() {
                 <textarea className="textarea" required rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe expected route or impact..." />
               </div>
 
-              <button type="submit" className="btn-accent mt-2" disabled={isSubmitting}>
-                {isSubmitting ? <LoadingState message="Generating Forecast..." size="sm" /> : 'Generate Impact Forecast'}
+              <button type="submit" className={`btn-accent mt-2 hover:scale-[1.02] active:scale-95 transition-all focus:ring-2 focus:ring-gray-400 focus:outline-none ${isSubmitting ? 'opacity-80' : ''}`} disabled={isSubmitting}>
+                {isSubmitting ? <span className="flex items-center gap-2 justify-center"><Loader2 size={14} className="animate-spin" /> Generating Forecast...</span> : 'Generate Impact Forecast'}
               </button>
             </form>
           </div>
         </div>
 
         {/* Forecast Column */}
-        {forecast && (
-          <div className="flex-1 flex flex-col gap-6 max-w-2xl">
-            <div className="card" style={{ background: 'var(--bg)', border: '2px solid var(--lime)' }}>
+        <AnimatePresence>
+          {forecast && (
+            <motion.div 
+              initial={{ opacity: 0, x: 20 }} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="flex-1 flex flex-col gap-6 max-w-2xl"
+            >
+              <div className="card" style={{ background: 'var(--bg)', border: '2px solid var(--lime)' }}>
               <h3 className="text-sm font-bold text-text-1 mb-4 flex items-center gap-2">
                 <AlertTriangle size={18} color="var(--lime)" /> Event Impact Forecast
               </h3>
@@ -172,10 +180,11 @@ export default function PlannedEventPage() {
               </div>
 
             </div>
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
 
-      </div>
+      </motion.div>
     </>
   );
 }

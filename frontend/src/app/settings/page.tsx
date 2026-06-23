@@ -3,6 +3,7 @@ import { PageHeading } from '@/components/layout/PageHeading';
 import { useAuth } from '@/lib/auth';
 import { Settings, User, Bell, Lock, Shield } from 'lucide-react';
 import { useState } from 'react';
+import { motion } from 'framer-motion';
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -31,7 +32,7 @@ export default function SettingsPage() {
         </>
       } />
       
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto">
         <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
           {/* Profile Section */}
@@ -104,7 +105,7 @@ export default function SettingsPage() {
           </div>
 
         </div>
-      </div>
+      </motion.div>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { LucideIcon } from 'lucide-react';
+import { motion, Variants } from 'framer-motion';
 
 interface StatCardProps {
   icon: LucideIcon;
@@ -33,8 +34,16 @@ export function StatCard({
   const isAccent = variant === 'accent';
   const isDark = variant === 'dark';
 
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 15 },
+    visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } }
+  };
+
   return (
-    <div className={`card ${variant !== 'default' ? `card-${variant}` : ''}`}>
+    <motion.div 
+      variants={itemVariants}
+      className={`card ${variant !== 'default' ? `card-${variant}` : ''} hover:scale-[1.02] hover:shadow-md transition-all cursor-pointer duration-200`}
+    >
       <div className="stat-card-header">
         <div 
           className="stat-card-icon-wrap" 
@@ -107,6 +116,6 @@ export function StatCard({
           })}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

@@ -13,6 +13,8 @@ import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Skeleton } from '@/components/shared/Skeleton';
 
 /**
  * Analytics Dashboard — SUPERVISOR and ADMIN roles only.
@@ -40,10 +42,14 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
   return (
     <>
       {!hideHeading && <PageHeading title="Analytics" />}
-      <div className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div 
+        initial="hidden" animate="visible" 
+        variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
+        className="flex-1 px-7 pb-7 overflow-auto"
+      >
 
           {/* Row 1: Model accuracy KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
             <KPICard
               label="Priority Accuracy"
               value={accuracy ? `${accuracy.priority_accuracy.toFixed(1)}%` : '—'}
@@ -64,14 +70,14 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
               value={accuracy?.feedback_count ?? '—'}
               isLoading={accLoading}
             />
-          </div>
+          </motion.div>
 
           {/* Row 2: Charts side by side */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '16px', marginBottom: '24px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '16px', marginBottom: '24px' }}>
             {/* Incident trend line chart */}
             <div className="chart-container">
               <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>Incident Trend (Last 30 Days)</h3>
-              {trendsLoading ? <LoadingState message="Loading trends…" /> : (
+              {trendsLoading ? <Skeleton width="100%" height={240} /> : (
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={trends ?? []}>
                     <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -93,7 +99,7 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
             {/* Resolution time histogram */}
             <div className="chart-container">
               <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>Resolution Time Distribution</h3>
-              {histLoading ? <LoadingState message="Loading histogram…" /> : (
+              {histLoading ? <Skeleton width="100%" height={240} /> : (
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={histogram ?? []}>
                     <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -105,25 +111,29 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
                 </ResponsiveContainer>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Row 3: Incident Density Map */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '24px', display: 'flex', flexDirection: 'column', height: '480px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: '24px', display: 'flex', flexDirection: 'column', height: '480px' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontSize: '14px', fontWeight: 700, background: 'var(--surface)', zIndex: 2 }}>
               Incident Density Map
             </div>
             <div style={{ flex: 1, position: 'relative' }}>
               <IncidentDensityMap incidents={incidents ?? []} height="100%" />
             </div>
-          </div>
+          </motion.div>
 
           {/* Row 4: Corridor performance table */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontSize: '14px', fontWeight: 700 }}>
               Corridor Performance
             </div>
             {corridorsLoading ? (
-              <LoadingState message="Loading corridor data…" />
+              <div className="flex flex-col gap-3 p-5">
+                <Skeleton height={40} />
+                <Skeleton height={40} />
+                <Skeleton height={40} />
+              </div>
             ) : (
               <table className="data-table">
                 <thead>
@@ -135,9 +145,9 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
                     <th>Most Common Type</th>
                   </tr>
                 </thead>
-                <tbody>
+                <motion.tbody initial="hidden" animate="visible" variants={{ visible: { transition: { staggerChildren: 0.05 } } }}>
                   {(corridors ?? []).map(c => (
-                    <tr key={c.corridor}>
+                    <motion.tr variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }} key={c.corridor} className="hover:bg-gray-50 transition-colors cursor-pointer">
                       <td style={{ fontWeight: 500 }}>{c.corridor}</td>
                       <td>{c.incident_count}</td>
                       <td>{Math.round(c.avg_resolution_minutes)} min</td>
@@ -147,13 +157,13 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
                         </span>
                       </td>
                       <td style={{ color: 'var(--color-text-secondary)' }}>{c.most_common_type}</td>
-                    </tr>
+                    </motion.tr>
                   ))}
-                </tbody>
+                </motion.tbody>
               </table>
             )}
-          </div>
-      </div>
+          </motion.div>
+      </motion.div>
     </>
   );
 }
