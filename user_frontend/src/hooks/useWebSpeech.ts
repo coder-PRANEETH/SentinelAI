@@ -3,6 +3,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) => void }) {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string>('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const recognitionRef = useRef<any>(null);
   const onTranscriptRef = useRef(onTranscript);
 
@@ -29,8 +30,21 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         
         recognitionRef.current.onerror = (event: any) => {
           console.error('Speech recognition error', event.error);
-          if (event.error !== 'no-speech') {
-            setError(event.error);
+          if (event.error === 'no-speech') {
+            // Normal pause, do not kill the session or show an error
+          } else if (event.error === 'audio-capture') {
+            setError('Microphone disconnected or unavailable. Please check your device.');
+            setIsListening(false);
+          } else if (event.error === 'network') {
+            setError('Connection issue. Please check your internet and try again.');
+            setIsListening(false);
+          } else if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+            setError('Microphone access denied. Please check permissions.');
+            setIsListening(false);
+          } else if (event.error === 'aborted') {
+            // Deliberate abort, no error needed
+          } else {
+            setError(`Recognition error: ${event.error}`);
             setIsListening(false);
           }
         };
@@ -41,11 +55,17 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         
         recognitionRef.current.onresult = (event: any) => {
           let finalTranscript = '';
+          let currentInterim = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
               finalTranscript += event.results[i][0].transcript;
+            } else {
+              currentInterim += event.results[i][0].transcript;
             }
           }
+          
+          setInterimTranscript(currentInterim);
+          
           if (finalTranscript) {
             onTranscriptRef.current(finalTranscript.trim());
           }
@@ -71,6 +91,7 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         try { recognitionRef.current.abort(); } catch(e) {}
       }
       setIsListening(false);
+      setInterimTranscript('');
     } else {
       try {
         recognitionRef.current.start();
@@ -80,5 +101,5 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
     }
   }, [isListening]);
 
-  return { isListening, error, toggleListening };
+  return { isListening, error, interimTranscript, toggleListening };
 }

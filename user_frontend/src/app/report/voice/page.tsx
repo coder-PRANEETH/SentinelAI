@@ -17,7 +17,7 @@ export default function VoiceReportPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const { isListening, error: webSpeechError, toggleListening } = useWebSpeech({
+  const { isListening, error: webSpeechError, interimTranscript, toggleListening } = useWebSpeech({
     onTranscript: (t) => setTranscript((prev) => (prev ? prev + " " + t : t)),
   });
 
@@ -232,15 +232,15 @@ export default function VoiceReportPage() {
               
               {webSpeechError && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '6px 12px', background: 'rgba(255,51,102,0.1)', borderRadius: '6px', border: '1px solid var(--err)' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--err)', fontWeight: 500 }}>Microphone issue — please check permissions.</span>
+                  <span style={{ fontSize: '12px', color: 'var(--err)', fontWeight: 500 }}>{webSpeechError}</span>
                 </div>
               )}
             </div>
 
-            {transcript && (
+            {(transcript || interimTranscript || isListening) && (
               <div style={{ padding: '16px', background: 'rgba(185, 230, 63, 0.05)' }}>
                 <textarea
-                  value={transcript}
+                  value={transcript + (transcript && interimTranscript ? ' ' : '') + interimTranscript}
                   onChange={e => setTranscript(e.target.value)}
                   placeholder="Live transcript..."
                   rows={4}
