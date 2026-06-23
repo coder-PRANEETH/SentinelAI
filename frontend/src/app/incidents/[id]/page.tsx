@@ -217,7 +217,7 @@ function AllocateModal({
 // ── Recommended Station Panel ───────────────────────────────────────────────
 
 function RecommendedStationPanel({ incident, incidentId }: { incident: any, incidentId: string }) {
-  const { data: result, isLoading, error } = useSWR(
+  const { data: result, isLoading, error, isValidating } = useSWR(
     incident ? ['/dispatch', incidentId] : null,
     async () => {
       const payload = {
@@ -228,13 +228,21 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
         min_vehicles: 1,
         search_top_k: 8,
       };
-      try {
-        return await getDispatchRecommendation(payload);
-      } catch (err) {
-        throw err;
-      }
+      return await getDispatchRecommendation(payload);
     },
-    { revalidateOnFocus: false }
+    {
+      revalidateOnFocus: false,
+      // Retry up to 4 times with exponential back-off (capped at 15 s).
+      // This handles Render free-tier cold-starts gracefully.
+      shouldRetryOnError: true,
+      errorRetryCount: 4,
+      errorRetryInterval: 3000,
+      onErrorRetry: (err, _key, _config, revalidate, { retryCount }) => {
+        if (retryCount >= 4) return;
+        const delay = Math.min(3000 * 2 ** retryCount, 15000);
+        setTimeout(() => revalidate({ retryCount }), delay);
+      },
+    }
   );
 
   const [isDispatching, setIsDispatching] = useState(false);
@@ -264,10 +272,16 @@ function RecommendedStationPanel({ incident, incidentId }: { incident: any, inci
     }
   };
 
-  if (isLoading) {
+  // Show skeleton while loading or while SWR is silently retrying after a
+  // transient error (Render cold-start). Only show the hard error card once
+  // all retries are exhausted (error is set AND not currently re-validating).
+  if (isLoading || (error && isValidating)) {
     return (
       <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }}>
-        <Skeleton height={180} />
+        <div className="card" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: '#9CA3AF', fontSize: 13 }}>
+          <Loader2 size={16} className="animate-spin" style={{ flexShrink: 0 }} />
+          Connecting to dispatch service…
+        </div>
       </motion.div>
     );
   }
