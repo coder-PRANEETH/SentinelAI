@@ -1284,6 +1284,16 @@ def search_similar_incidents(
     # ── 3. Cosine similarity against full matrix ─────────────────────────────
     search_started = time.perf_counter()
     scores_array = sk_cosine_similarity(query_vec, _tfidf_matrix).flatten()
+
+    # Boost event_cause for planned events
+    query_lower = query.lower()
+    if "planned event" in query_lower:
+        for cause in ["public_event", "procession", "vip_movement", "protest", "construction"]:
+            if cause in query_lower:
+                mask = _hist_df["event_cause"].str.lower() == cause
+                # Apply 0.6 * cause_match (1.0) + 0.4 * text_similarity
+                scores_array[mask] = (0.6 * 1.0) + (0.4 * scores_array[mask])
+
     # argsort ascending → take last top_k and reverse for descending order
     top_indices = scores_array.argsort()[-top_k:][::-1]
     search_elapsed = time.perf_counter() - search_started
@@ -1452,6 +1462,29 @@ def dispatch(
         rss_before,
         snapshot_before,
     )
+    # Step 4 - Simple Diversion Route Logic
+    diversion_route = "Standard local diversion (deploy traffic wardens at preceding junction)"
+    if corridor:
+        corridor_lower = corridor.lower()
+        if "outer ring road" in corridor_lower or "orr" in corridor_lower:
+            diversion_route = "Recommended Diversion: Use Inner Ring Road / Old Airport Road via nearest major interchange."
+        elif "mysore road" in corridor_lower:
+            diversion_route = "Recommended Diversion: Divert traffic via West of Chord Road / Magadi Road."
+        elif "bellary road" in corridor_lower:
+            diversion_route = "Recommended Diversion: Divert via New BEL Road / Tumkur Road."
+        elif "tumkur road" in corridor_lower:
+            diversion_route = "Recommended Diversion: Divert via Magadi Road / Outer Ring Road (North)."
+        elif "hosur road" in corridor_lower:
+            diversion_route = "Recommended Diversion: Divert via Bannerghatta Road / Electronic City elevated tollway."
+        elif "old madras road" in corridor_lower:
+            diversion_route = "Recommended Diversion: Divert via Old Airport Road / Swami Vivekananda Road."
+    elif incident_text:
+        incident_lower = incident_text.lower()
+        if "silk board" in incident_lower:
+            diversion_route = "Recommended Diversion: Pre-divert at HSR Layout and BTM Layout junctions."
+        elif "mekhri circle" in incident_lower:
+            diversion_route = "Recommended Diversion: Divert traffic via Jayamahal Road and Sankey Road."
+
     return {
         "dispatch": {
             "incident": incident_text,
@@ -1465,6 +1498,7 @@ def dispatch(
             "vehicles": rec_vehicles,
             "tow_trucks": rec_tow,
             "barricades": rec_barricades,
+            "suggested_diversion_route": diversion_route,
             "justification": "Based on historical similarities: " + "; ".join(reasoning)
         },
         "historical_context": {
