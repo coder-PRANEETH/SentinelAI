@@ -566,15 +566,20 @@ body {
 
 /* Right Panel */
 .right-panel {
-  width: 260px;
-  flex-shrink: 0;
-  background: #F5F5F3;
-  border-left: 1px solid #E5E5E5;
-  padding: 20px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
+  display: none;
+}
+@media (min-width: 1024px) {
+  .right-panel {
+    width: 260px;
+    flex-shrink: 0;
+    background: #F5F5F3;
+    border-left: 1px solid #E5E5E5;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+  }
 }
 .right-panel-grid {
   display: grid;

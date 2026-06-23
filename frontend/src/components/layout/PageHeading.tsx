@@ -40,7 +40,7 @@ export function PageHeading({ title }: PageHeadingProps) {
           <Settings size={18} />
         </Link>
         <button className="icon-btn md:hidden" onClick={() => logout()} title="Sign Out">
-          <LogOut size={18} className="text-danger" />
+          <LogOut size={18} style={{ color: 'var(--color-danger)' }} />
         </button>
         <Link href="/incidents/new" className="btn-primary" style={{ textDecoration: 'none' }}>
           + New Incident
