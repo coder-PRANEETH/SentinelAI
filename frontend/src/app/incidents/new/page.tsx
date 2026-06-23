@@ -122,46 +122,50 @@ export default function NewIncidentPage() {
   const prevIsListening = useRef(isListening);
 
   useEffect(() => {
-    if (prevIsListening.current === true && isListening === false) {
-      // Dictation just stopped
-      if (transcript.trim().length > 0) {
-        setIsExtracting(true);
-        api.predict.extractFields(transcript).then((res) => {
-          if (res.success && res.incident) {
-            const filled = new Set(aiFilledFields);
-            const { event_type, vehicle_type, corridor: extractedCorridor, location_name, road_name } = res.incident;
-            
-            if (event_type && event_type !== 'unknown') {
-              const mappedType = mapEventTypeToIncidentType(event_type);
-              if (mappedType) {
-                setIncidentType(mappedType);
-                filled.add('incidentType');
-              }
+    if (transcript.trim().length < 5) return;
+    if (isListening) return; // wait until dictation pauses
+
+    const timer = setTimeout(() => {
+      setIsExtracting(true);
+      api.predict.extractFields(transcript).then((res) => {
+        if (res.success && res.incident) {
+          const { event_type, vehicle_type, corridor: extractedCorridor, location_name, road_name } = res.incident;
+          
+          const newlyFilled: string[] = [];
+          if (event_type && event_type !== 'unknown') {
+            const mappedType = mapEventTypeToIncidentType(event_type);
+            if (mappedType) {
+              setIncidentType(mappedType);
+              newlyFilled.push('incidentType');
             }
-            if (vehicle_type && vehicle_type !== 'unknown') {
-              const mappedVeh = mapVehicleTypeToVehicleType(vehicle_type);
-              if (mappedVeh) {
-                setVehicleType(mappedVeh);
-                filled.add('vehicleType');
-              }
-            }
-            if (extractedCorridor) {
-              setCorridor(extractedCorridor);
-              filled.add('corridor');
-            }
-            const loc = location_name || road_name;
-            if (loc && loc !== 'unknown') {
-              setLocation(loc);
-              filled.add('location');
-            }
-            setAiFilled(filled);
           }
-        }).catch(err => console.error("Extraction failed", err))
-          .finally(() => setIsExtracting(false));
-      }
-    }
-    prevIsListening.current = isListening;
-  }, [isListening, transcript, aiFilledFields]);
+          if (vehicle_type && vehicle_type !== 'unknown') {
+            const mappedVeh = mapVehicleTypeToVehicleType(vehicle_type);
+            if (mappedVeh) {
+              setVehicleType(mappedVeh);
+              newlyFilled.push('vehicleType');
+            }
+          }
+          if (extractedCorridor) {
+            setCorridor(extractedCorridor);
+            newlyFilled.push('corridor');
+          }
+          const loc = location_name || road_name;
+          if (loc && loc !== 'unknown') {
+            setLocation(loc);
+            newlyFilled.push('location');
+          }
+          
+          if (newlyFilled.length > 0) {
+            setAiFilled(prev => new Set([...prev, ...newlyFilled]));
+          }
+        }
+      }).catch(err => console.error("Extraction failed", err))
+        .finally(() => setIsExtracting(false));
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [transcript, isListening]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
@@ -612,29 +616,7 @@ export default function NewIncidentPage() {
                       <Mic size={10} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'text-top' }} />
                       Dictation
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInputMode('assistant');
-                      }}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: '20px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        background: inputMode === 'assistant' ? '#B9E63F' : 'transparent',
-                        color: '#111111',
-                        border: '1px solid ' + (inputMode === 'assistant' ? '#B9E63F' : 'var(--color-border)'),
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px'
-                      }}
-                    >
-                      <MessageSquare size={10} />
-                      AI Assistant
-                    </button>
+
                   </div>
                 </div>
 
@@ -658,100 +640,7 @@ export default function NewIncidentPage() {
                   </div>
                 )}
 
-                {inputMode === 'assistant' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: '#F8FAF6', borderRadius: '16px', border: '1px dashed var(--color-border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          width: '10px',
-                          height: '10px',
-                          borderRadius: '50%',
-                          backgroundColor: streamingCallActive
-                            ? (streamingCallStatus === 'listening' ? '#B9E63F' : '#E53E3E')
-                            : '#A0A0A0',
-                          animation: (streamingCallActive && streamingCallStatus === 'listening') ? 'pulse 1.5s infinite' : 'none'
-                        }} />
-                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                          {streamingCallActive ? `Status: ${streamingCallStatus}` : 'Assistant Offline'}
-                        </span>
-                      </div>
-                      
-                      {!streamingCallActive ? (
-                        <button
-                          type="button"
-                          onClick={handleStartStreamingCall}
-                          className="btn-accent"
-                          style={{ backgroundColor: '#B9E63F', color: '#111111', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '6px 12px', border: 'none' }}
-                        >
-                          <Play size={12} /> Start Call
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={cleanupStreamingCall}
-                          className="btn-danger"
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', cursor: 'pointer' }}
-                        >
-                          <Square size={12} /> Stop Call
-                        </button>
-                      )}
-                    </div>
 
-                    {streamingCallActive && streamingCallStatus === 'listening' && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', height: '20px' }}>
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <div
-                            key={i}
-                            style={{
-                              width: '3px',
-                              backgroundColor: '#B9E63F',
-                              borderRadius: '2px',
-                              animation: `bounce 0.8s ease-in-out infinite alternate`,
-                              animationDelay: `${i * 0.15}s`,
-                              height: '100%'
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                      maxHeight: '180px',
-                      overflowY: 'auto',
-                      padding: '10px',
-                      background: '#ffffff',
-                      borderRadius: '12px',
-                      border: '1px solid var(--color-border)'
-                    }}>
-                      {chatHistory.length === 0 ? (
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', textAlign: 'center', padding: '12px' }}>
-                          Click "Start Call" to begin voice dialog session.
-                        </div>
-                      ) : (
-                        chatHistory.map((chat, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              alignSelf: chat.sender === 'ai' ? 'flex-start' : 'flex-end',
-                              backgroundColor: chat.sender === 'ai' ? '#F3F4F1' : '#B9E63F',
-                              color: '#111111',
-                              padding: '8px 12px',
-                              borderRadius: chat.sender === 'ai' ? '12px 12px 12px 2px' : '12px 12px 2px 12px',
-                              maxWidth: '85%',
-                              fontSize: '12px',
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {chat.text}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {/* Transcript */}
                 <div className="form-group">
