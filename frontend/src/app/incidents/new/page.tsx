@@ -534,13 +534,6 @@ export default function NewIncidentPage() {
   const isSubmitDisabled = (!corridor || !location) || predicting;
 
   const getFieldStyle = (field: string) => {
-    if (aiFilledFields.has(field) && !editedFields.has(field)) {
-      return { 
-        backgroundColor: '#f6fceb',
-        border: '1px solid #cce885',
-        boxShadow: 'inset 4px 0 0 #B9E63F'
-      };
-    }
     return {};
   };
 
@@ -658,7 +651,8 @@ export default function NewIncidentPage() {
                         fontSize: '14px',
                         lineHeight: '1.6',
                         boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
-                        resize: 'vertical'
+                        resize: 'vertical',
+                        width: '100%'
                       }}
                     />
                   </div>
@@ -670,7 +664,8 @@ export default function NewIncidentPage() {
                     borderRadius: '12px',
                     border: '1px solid #E2E8F0',
                     marginTop: '8px',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    width: '100%'
                   }}>
                     <div style={{
                       display: 'flex', 

@@ -219,7 +219,7 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
             </div>
           `;
 
-          // Using the immutable local variable here prevents compiler build worker crashes
+          // Immutable local copy prevents build worker serialization crashes.
           const rect = container.getBoundingClientRect();
           let left = rect.left + e.point.x + 15;
           let top = rect.top + e.point.y + 15;

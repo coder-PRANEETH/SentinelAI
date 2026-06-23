@@ -10,7 +10,7 @@ interface TrendData {
 
 export function StatisticsPanel({ data }: { data: TrendData[] }) {
   // Transform data for CapsuleBarChart
-  // We need values between 0 and 1. We'll find max to normalize.
+  // Normalize values to [0, 1] scale.
   const maxVal = Math.max(...(data.map(d => d.count) || [0]), 10);
 
   const chartData = data.map((d, i) => {

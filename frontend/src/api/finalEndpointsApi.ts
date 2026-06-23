@@ -9,7 +9,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://sentinelai
 const DIAGNOSTIC_PATHS = new Set(['/dispatch', '/historical-search', '/station-readiness']);
 
 // Fixed per-station resource caps from final_endpoints/models.py DEFAULT_RESOURCES.
-// The API never returns these totals, only current availability, so they're mirrored here.
+// Base capacity limits (API returns only current availability).
 export const STATION_RESOURCE_CAPS = {
   officers: 15,
   vehicles: 4,

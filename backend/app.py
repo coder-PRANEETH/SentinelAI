@@ -45,9 +45,7 @@ def create_app(config_override: dict = None) -> Flask:
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     # Keep Flask self-sufficient for mounted deployments.
-    # FastAPI also applies CORS at the ASGI layer, but the mounted Flask app
-    # now answers preflight requests and emits its own CORS headers so the
-    # browser does not depend on the mount boundary for OPTIONS handling.
+    # Handle internal CORS preflight requests independently of the ASGI mount boundary.
     CORS(
         app,
         origins=cfg.CORS_ORIGINS,

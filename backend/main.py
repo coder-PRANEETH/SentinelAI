@@ -47,7 +47,7 @@ app = FastAPI(title="SentinelAI Incident Copilot Backend")
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # Single unified CORS policy covering both FastAPI and the Flask sub-app.
-# The mounted Flask app also enables CORS now so preflight requests are
+# Flask sub-app handles its own CORS preflight requests.
 # handled correctly even when the browser reaches the WSGI sub-app directly.
 app.add_middleware(
     CORSMiddleware,
@@ -168,12 +168,12 @@ def resolve_location_with_geocoding(extracted: dict) -> dict:
     # Strategy 1: Try local known landmarks/roads
     location = resolve_location(extracted)
     
-    # If we got a known landmark with coordinates, return it
+    # Return resolved landmark coordinates.
     if location.get("latitude") and location.get("longitude"):
         logger.info(f"Location resolved via local DB: {location.get('location_name')}")
         return location
     
-    # Strategy 2: Try geocoding if we have location_query or road_name
+    # Strategy 2: Attempt geocoding via Nominatim.
     query_to_geocode = location_query or road_name or landmark
     
     if query_to_geocode:
@@ -192,7 +192,7 @@ def resolve_location_with_geocoding(extracted: dict) -> dict:
         except Exception as e:
             logger.warning(f"Geocoding failed, keeping local resolution: {str(e)}")
     
-    # Strategy 3: Return what we have from local resolution (may have road_name without coords)
+    # Strategy 3: Return locally resolved data as fallback.
     logger.info(f"Location resolution final: {location.get('location_name')}")
     return location
 

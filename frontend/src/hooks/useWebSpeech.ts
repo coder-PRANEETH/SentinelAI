@@ -4,6 +4,12 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string>('');
   const recognitionRef = useRef<any>(null);
+  const onTranscriptRef = useRef(onTranscript);
+
+  // Keep ref up to date
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  }, [onTranscript]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -13,6 +19,9 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         recognitionRef.current.continuous = true;
         recognitionRef.current.interimResults = true;
         
+        // Let the user manually stop
+        let manualStop = false;
+
         recognitionRef.current.onstart = () => {
           setIsListening(true);
           setError('');
@@ -38,7 +47,7 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
             }
           }
           if (finalTranscript) {
-            onTranscript(finalTranscript.trim());
+            onTranscriptRef.current(finalTranscript.trim());
           }
         };
       }
@@ -48,7 +57,7 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
         recognitionRef.current.stop();
       }
     };
-  }, [onTranscript]);
+  }, []);
 
   const toggleListening = useCallback(() => {
     if (!recognitionRef.current) {
@@ -56,7 +65,12 @@ export function useWebSpeech({ onTranscript }: { onTranscript: (text: string) =>
       return;
     }
     if (isListening) {
-      recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        // Sometimes continuous recognition needs aborting to fully stop immediately
+        try { recognitionRef.current.abort(); } catch(e) {}
+      }
+      setIsListening(false);
     } else {
       try {
         recognitionRef.current.start();

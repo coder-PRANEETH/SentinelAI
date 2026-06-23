@@ -33,11 +33,7 @@ def rebuild_faiss_index():
         ml_service._load_models()  # This will recreate FAISS if files are missing, 
                                    # but true rebuild requires accessing the DB.
         
-        # In a real app we'd fetch all CLOSED incidents from DB and rebuild FAISS.
-        # Assuming ml_service does this internally if instructed.
-        # Since ML module details are in `final_endpoints`, we mock the response here
-        # or call a method if one exists.
-        # For SentinelAI SRS compliance:
+        # Mock FAISS rebuild response (closed incidents sourced from final_endpoints).
         
         duration = time.time() - start_time
         return jsonify({

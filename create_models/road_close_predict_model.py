@@ -25,7 +25,7 @@ def train_road_closure_model():
     print(f"  Requires Closure (1): {(df['target'] == 1).sum()} ({(df['target'] == 1).mean()*100:.1f}%)")
     print(f"  No Closure (0):       {(df['target'] == 0).sum()} ({(df['target'] == 0).mean()*100:.1f}%)")
 
-    # 3. Select features available at the start of the incident (No leaks!)
+    # 3. Restrict features to pre-dispatch knowledge to prevent data leakage.
     cat_features = [
         'event_type_grouped',
         'event_cause',
@@ -82,7 +82,7 @@ def train_road_closure_model():
     test_pool = Pool(X_test, y_test, cat_features=cat_indices)
 
     # 7. Configure and train CatBoost Classifier
-    # Since dataset has severe class imbalance, we use auto_class_weights='Balanced'
+    # Balanced class weights compensate for severe target imbalance.
     model = CatBoostClassifier(
         loss_function='Logloss',
         eval_metric='F1',

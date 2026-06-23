@@ -81,7 +81,7 @@ def main():
         if df[col].isnull().any():
             df[col] = df[col].fillna(df[col].median())
             
-    # We must maintain the EXACT SAME 20% test set as before.
+    # Preserve existing 20% test set distribution.
     # The previous code was:
     # train_test_split(X, y, test_size=0.20, random_state=42, stratify=y)
     
@@ -133,7 +133,7 @@ def main():
     print("\nBest params:", best_params)
     print("Best CV Macro-F1:", best_f1)
     
-    # Now run a strict 5-fold CV on train+val with best params to report mean/std
+    # Execute 5-fold cross-validation on train/val set to compute metrics.
     best_params['auto_class_weights'] = best_params['auto_class_weights'] if best_params['auto_class_weights'] != 'None' else None
     cv_5 = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     accs, f1s = [], []
