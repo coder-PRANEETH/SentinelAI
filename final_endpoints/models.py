@@ -157,8 +157,8 @@ if CORS is not None:
     CORS(
         app,
         origins=[
-            r"^https://.*\.pages\.dev$",
-            r"^https://.*\.vercel\.app$",
+            re.compile(r"^https://.*\.pages\.dev$"),
+            re.compile(r"^https://.*\.vercel\.app$"),
             "http://localhost:3000",
             "http://localhost:3001",
         ],
