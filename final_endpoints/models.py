@@ -25,6 +25,7 @@ import re
 import traceback
 import time
 import tracemalloc
+import gc
 from functools import lru_cache
 from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timezone
@@ -157,8 +158,8 @@ if CORS is not None:
     CORS(
         app,
         origins=[
-            r"https://.*\.pages\.dev",
-            r"https://.*\.vercel\.app",
+            r"^https://.*\.pages\.dev$",
+            r"^https://.*\.vercel\.app$",
             "http://localhost:3000",
             "http://localhost:3001",
         ],
@@ -860,26 +861,6 @@ RESOURCE_WEIGHTS = {"officers": 0.5, "vehicles": 0.3, "tow_trucks": 0.2}
 
 
 @lru_cache(maxsize=1)
-def _load_dataset(data_file: str) -> pd.DataFrame:
-    started_at = time.perf_counter()
-    rss_before = _process_rss_mb()
-    df = pd.read_csv(data_file, encoding="latin1")
-    df["start_dt"] = pd.to_datetime(df["start_datetime"], utc=True, errors="coerce")
-    logger.info(
-        "[final_endpoints] dataset loaded file=%s rows=%s duration=%.3fs",
-        data_file,
-        len(df),
-        time.perf_counter() - started_at,
-    )
-    logger.info(
-        "[final_endpoints] dataset RSS before=%.2f MB after=%.2f MB",
-        rss_before if rss_before is not None else -1.0,
-        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
-    )
-    return df
-
-
-@lru_cache(maxsize=1)
 def compute_station_loads(data_file: str) -> Dict[str, dict]:
     """Compute per-station load metrics from the historical dataset."""
     import pickle
@@ -891,28 +872,31 @@ def compute_station_loads(data_file: str) -> Dict[str, dict]:
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
     logger.info("[final_endpoints] STEP 4 dataset load")
-    df = _load_dataset(data_file).copy()
+    
+    # Load using memory-efficient shared dataset helper
+    df = _load_shared_dataset(data_file)
 
     active_mask = (df["status"] == "active") | (df["resolved_datetime"].isna() & (df["status"] != "closed"))
-    active_df = df[active_mask]
+    active_subset = df.loc[active_mask, ["police_station", "priority"]]
 
-    df["start_dt"]    = pd.to_datetime(df["start_datetime"],    utc=True, errors="coerce")
-    df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
-    df["resolution_mins"] = (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
+    unique_stations = df["police_station"].dropna().unique()
+    median_resolutions = df.groupby("police_station")["resolution_mins"].median()
+    active_counts = active_subset.groupby("police_station").size()
+    high_priority_counts = active_subset[active_subset["priority"] == "High"].groupby("police_station").size()
 
     loads: Dict[str, dict] = {}
-    for station in df["police_station"].dropna().unique():
-        station_active    = active_df[active_df["police_station"] == station]
-        station_all       = df[df["police_station"] == station]
-        high_priority     = station_active[station_active["priority"] == "High"]
-        avg_res           = station_all["resolution_mins"].dropna().median()
+    for station in unique_stations:
+        act_count = int(active_counts.get(station, 0))
+        hp_count = int(high_priority_counts.get(station, 0))
+        avg_res = median_resolutions.get(station, np.nan)
 
         loads[station] = {
-            "active_incidents": int(len(station_active)),
-            "high_priority_incidents": int(len(high_priority)),
+            "active_incidents": act_count,
+            "high_priority_incidents": hp_count,
             "avg_resolution_mins": round(float(avg_res), 1) if pd.notna(avg_res) else 60.0,
         }
 
+    gc.collect()
     logger.info(
         "[final_endpoints] station loads computed stations=%s duration=%.3fs",
         len(loads),
@@ -1109,25 +1093,70 @@ class LoadBalancer:
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 6 — HISTORICAL INCIDENT TEXT PREPARATION (shared by TF-IDF pipeline)
 # ═════════════════════════════════════════════════════════════════════════════
-#
-# Replaces: FAISS + SentenceTransformer + torch + transformers
-# With:     TfidfVectorizer + cosine_similarity  (sklearn — already a dep)
-#
-# Memory reduction: ~400–600 MB (torch + model weights gone entirely)
-# Startup reduction: ~8–12 s (no model download / torch import)
 
 FEATURE_COLS = [
     "event_cause", "corridor", "junction",
     "priority", "veh_type", "police_station",
 ]
 
+REQUIRED_COLS = [
+    "event_cause", "corridor", "junction", "priority", "veh_type",
+    "police_station", "start_datetime", "resolved_datetime", "status"
+]
+
+
+@lru_cache(maxsize=1)
+def _load_shared_dataset(path: str) -> pd.DataFrame:
+    """
+    Load and clean the Astram CSV using an optimized memory-efficient strategy.
+    Only the required columns are loaded to keep the footprint within Render Free limits.
+    """
+    rss_before = _process_rss_mb()
+    logger.info("[shared-dataset] loading optimized CSV: %s", path)
+
+    # Resolve actual columns available in the file
+    header = pd.read_csv(path, nrows=0, encoding="latin1")
+    cols_to_use = [col for col in REQUIRED_COLS if col in header.columns]
+
+    df = pd.read_csv(path, encoding="latin1", usecols=cols_to_use)
+
+    if "start_datetime" in df.columns:
+        df["start_dt"] = pd.to_datetime(df["start_datetime"], utc=True, errors="coerce")
+        df["day"]  = df["start_dt"].dt.day_name()
+        df["hour"] = df["start_dt"].dt.hour
+    else:
+        df["start_dt"] = pd.NaT
+        df["day"] = "unknown"
+        df["hour"] = 12
+
+    if "resolved_datetime" in df.columns:
+        df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
+    else:
+        df["resolved_dt"] = pd.NaT
+
+    if "start_dt" in df.columns and "resolved_dt" in df.columns:
+        df["resolution_mins"] = (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
+    else:
+        df["resolution_mins"] = np.nan
+
+    for col in FEATURE_COLS:
+        if col in df.columns:
+            df[col] = df[col].fillna("unknown")
+
+    gc.collect()
+    logger.info(
+        "[shared-dataset] CSV loaded rows=%d RSS_before=%.1f MB RSS_after=%.1f MB",
+        len(df),
+        rss_before if rss_before is not None else -1.0,
+        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
+    )
+    return df
+
 
 def _build_text_repr(row: pd.Series) -> str:
     """
     Concatenate structured incident fields into a single searchable string.
-    Underscores replaced with spaces so TF-IDF tokenises sub-words correctly
-    (e.g. "heavy_vehicle" → "heavy vehicle").
-    Day-of-week and hour are appended for temporal similarity.
+    Underscores replaced with spaces so TF-IDF tokenises sub-words correctly.
     """
     parts = []
     for col in FEATURE_COLS:
@@ -1142,33 +1171,14 @@ def _build_text_repr(row: pd.Series) -> str:
 
 @lru_cache(maxsize=1)
 def _load_and_clean(path: str) -> pd.DataFrame:
-    """
-    Load and lightly clean the Astram CSV.
-    Result is cached — subsequent calls return the same object.
-    """
-    rss_before = _process_rss_mb()
-    logger.info("[historical-search] loading CSV: %s", path)
-    df = pd.read_csv(path, encoding="latin1")
+    """Fallback compatible wrapper routing to the shared loader."""
+    return _load_shared_dataset(path)
 
-    df["start_dt"]    = pd.to_datetime(df["start_datetime"],    utc=True, errors="coerce")
-    df["resolved_dt"] = pd.to_datetime(df["resolved_datetime"], utc=True, errors="coerce")
-    df["resolution_mins"] = (
-        (df["resolved_dt"] - df["start_dt"]).dt.total_seconds() / 60
-    )
-    df["day"]  = df["start_dt"].dt.day_name()
-    df["hour"] = df["start_dt"].dt.hour
 
-    for col in FEATURE_COLS:
-        if col in df.columns:
-            df[col] = df[col].fillna("unknown")
-
-    logger.info(
-        "[historical-search] CSV loaded rows=%d RSS_before=%.1f MB RSS_after=%.1f MB",
-        len(df),
-        rss_before if rss_before is not None else -1.0,
-        _process_rss_mb() if _process_rss_mb() is not None else -1.0,
-    )
-    return df
+@lru_cache(maxsize=1)
+def _load_dataset(data_file: str) -> pd.DataFrame:
+    """Fallback compatible wrapper routing to the shared loader."""
+    return _load_shared_dataset(data_file)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1188,16 +1198,6 @@ _historical_init_lock = Lock()
 def _initialize_historical_cache() -> None:
     """
     Lazily build the TF-IDF index on the first search call.
-
-    Steps
-    -----
-    1. Load & clean the Astram CSV  (re-uses _load_and_clean lru_cache)
-    2. Build one text string per incident from FEATURE_COLS
-    3. Fit TfidfVectorizer with bounded vocabulary (max_features=5000)
-    4. Store fitted vectorizer + sparse TF-IDF matrix as module globals
-
-    Thread-safe double-checked locking so concurrent first requests
-    do not rebuild the index more than once.
     """
     global _hist_df, _tfidf_vectorizer, _tfidf_matrix
     # Fast-path: already initialised
@@ -1221,16 +1221,13 @@ def _initialize_historical_cache() -> None:
         started_at = time.perf_counter()
         rss_before = _process_rss_mb()
 
-        # Step 1 — load data (shared lru_cache with LoadBalancer / station_loads)
+        # Step 1 — load data (shared optimized loader)
         df = _load_and_clean(DATA_FILE)
 
         # Step 2 — build per-row text corpus
         corpus = df.apply(_build_text_repr, axis=1).tolist()
 
         # Step 3 — fit TF-IDF
-        # max_features=5000  keeps sparse matrix small (~5 k cols × n_rows floats32)
-        # ngram_range=(1,2)  captures common bigrams like "heavy vehicle", "tumkur road"
-        # sublinear_tf=True  dampens very frequent terms (same role as IDF)
         vectorizer = TfidfVectorizer(
             max_features=5000,
             stop_words="english",
@@ -1244,6 +1241,7 @@ def _initialize_historical_cache() -> None:
         _tfidf_vectorizer = vectorizer
         _tfidf_matrix     = matrix
 
+        gc.collect()
         elapsed = time.perf_counter() - started_at
         logger.info(
             "[historical-search] cache initialized in %.2fs "
@@ -1272,20 +1270,6 @@ def search_similar_incidents(
 ) -> dict:
     """
     Find historical incidents most similar to *query* using TF-IDF cosine similarity.
-
-    Parameters
-    ----------
-    query   : Free-text description, e.g. 'Vehicle Breakdown Tumkur Road Heavy Vehicle'
-    top_k   : Number of results to return
-
-    Returns
-    -------
-    dict with keys (schema identical to the former FAISS implementation):
-        similar_cases           – list[dict]  top_k matching incidents
-        total_similar           – int         count of incidents with score >= 0.10
-        average_resolution_time – float|None  median resolution minutes
-        historical_priority     – str         most common priority label
-        most_common_outcome     – str         most common event_cause label
     """
     started_at = time.perf_counter()
     rss_before = _process_rss_mb()
@@ -1386,8 +1370,6 @@ def search_similar_incidents(
         })
 
     # total_similar: incidents with cosine score >= 0.10
-    # (TF-IDF cosine scores are lower than neural embedding scores;
-    #  0.10 is a calibrated threshold equivalent to the former 0.75 FAISS threshold)
     total_similar = int((scores_array >= 0.10).sum())
 
     result = {
@@ -1563,10 +1545,6 @@ def dispatch(
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SECTION 9 — BENGALURU TRAFFIC NETWORK GRAPH (CORRIDOR RIPPLE SIMULATOR)
-# ═════════════════════════════════════════════════════════════════════════════
-
-# ═════════════════════════════════════════════════════════════════════════════
-# SECTION 9 — BENGALURU TRAFFIC NETWORK GRAPH (HIGH-DENSITY ENRICHED GRAPH)
 # ═════════════════════════════════════════════════════════════════════════════
 
 BENGALURU_NODES = {
