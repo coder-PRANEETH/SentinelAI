@@ -928,8 +928,8 @@ def compute_readiness_score(
     })
 
     resource_ratio = (
-        RESOURCE_WEIGHTS["officers"]   * (res["officers"]   / max(DEFAULT_RESOURCES["officers"],   1)) +
-        RESOURCE_WEIGHTS["vehicles"]   * (res["vehicles"]   / max(DEFAULT_RESOURCES["vehicles"],   1)) +
+        RESOURCE_WEIGHTS["officers"] * (res["officers"] / max(DEFAULT_RESOURCES["officers"], 1)) +
+        RESOURCE_WEIGHTS["vehicles"] * (res["vehicles"] / max(DEFAULT_RESOURCES["vehicles"], 1)) +
         RESOURCE_WEIGHTS["tow_trucks"] * (res["tow_trucks"] / max(DEFAULT_RESOURCES["tow_trucks"], 1))
     )
 
@@ -1010,16 +1010,56 @@ class LoadBalancer:
         corridor: Optional[str] = None,
         candidate_stations: Optional[List[str]] = None,
     ) -> List[dict]:
-        """Compute and rank readiness scores for candidate stations."""
+        """Compute and rank readiness scores for candidate stations in a batch."""
         self._ensure_loads()
 
         if candidate_stations is None:
             candidate_stations = self._candidate_stations(corridor)
 
+        # Batch-fetch all resource rows in one call to prevent 53 sequential DB round-trips
+        all_resources = self._tracker.get_all_resources_batch()
+
+        import math
         scores = []
         for station in candidate_stations:
-            r = compute_readiness_score(station, self._tracker, self.loads)
-            scores.append(r)
+            res = all_resources.get(station)
+            if not res:
+                # Fallback to single lookup if station wasn't loaded in batch
+                try:
+                    res = self._tracker.get_available_resources(station)
+                except ValueError:
+                    scores.append({"station": station, "readiness_score": 0.0, "error": "Station not in resource DB"})
+                    continue
+
+            load = self.loads.get(station, {
+                "active_incidents": 0,
+                "high_priority_incidents": 0,
+                "avg_resolution_mins": 60.0,
+            })
+
+            resource_ratio = (
+                RESOURCE_WEIGHTS["officers"]   * (res["officers"]   / max(DEFAULT_RESOURCES["officers"],   1)) +
+                RESOURCE_WEIGHTS["vehicles"]   * (res["vehicles"]   / max(DEFAULT_RESOURCES["vehicles"],   1)) +
+                RESOURCE_WEIGHTS["tow_trucks"] * (res["tow_trucks"] / max(DEFAULT_RESOURCES["tow_trucks"], 1))
+            )
+
+            effective_load = load["active_incidents"] + 0.5 * load["high_priority_incidents"]
+            load_factor = math.log1p(effective_load) / 1.5
+
+            raw_score = resource_ratio / (1.0 + load_factor)
+            score     = round(raw_score * 100, 1)
+
+            scores.append({
+                "station": station,
+                "readiness_score": score,
+                "resource_ratio_pct": round(resource_ratio * 100, 1),
+                "available_officers": res["officers"],
+                "available_vehicles": res["vehicles"],
+                "available_tow_trucks": res["tow_trucks"],
+                "active_incidents": load["active_incidents"],
+                "high_priority_incidents": load["high_priority_incidents"],
+                "avg_resolution_mins": load["avg_resolution_mins"],
+            })
 
         scores.sort(key=lambda x: x["readiness_score"], reverse=True)
         return scores
