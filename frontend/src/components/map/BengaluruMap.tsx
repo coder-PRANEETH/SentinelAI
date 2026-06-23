@@ -394,8 +394,10 @@ export function BengaluruMap({
       bearing: MAP_CONFIG.bearing,
       minZoom: MAP_CONFIG.minZoom,
       maxZoom: MAP_CONFIG.maxZoom,
+      attributionControl: false,
     });
 
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     mapRef.current = map;
 

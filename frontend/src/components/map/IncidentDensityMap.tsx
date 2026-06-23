@@ -37,8 +37,10 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
       pitch: MAP_CONFIG.pitch,
       minZoom: MAP_CONFIG.minZoom,
       maxZoom: MAP_CONFIG.maxZoom,
+      attributionControl: false,
     });
 
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     mapRef.current = map;
 
