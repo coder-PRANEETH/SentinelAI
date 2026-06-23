@@ -8,10 +8,6 @@ Optimizations:
   - Reduced memory: TF-IDF replaces SentenceTransformer + FAISS + torch
   - Connection pool: tuned for single gunicorn worker
   - Graceful degradation: missing artifacts don't crash startup
-
-Historical search backend: sklearn TF-IDF cosine similarity.
-  Removed: sentence_transformers, transformers, torch, faiss.
-  Added:   TfidfVectorizer + cosine_similarity (sklearn, already a dep).
 """
 
 import os
