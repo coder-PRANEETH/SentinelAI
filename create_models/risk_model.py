@@ -53,6 +53,7 @@ def train_priority_model():
         'requires_road_closure',
         'veh_type_grouped',
         'day_of_week',
+        'zone',
     ]
 
     num_features = [
@@ -60,8 +61,6 @@ def train_priority_model():
         'month',
         'is_peak_hour',
         'is_weekend',
-        'is_cascaded',
-        'cascade_size',
     ]
 
     features = cat_features + num_features

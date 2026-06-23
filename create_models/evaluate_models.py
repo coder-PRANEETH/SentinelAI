@@ -21,13 +21,13 @@ def evaluate_models():
     valid_priorities = ['high', 'low']
     pdf = df[df['priority'].isin(valid_priorities)].copy()
     pdf['priority_target'] = pdf['priority'].map({'high': 1, 'low': 0})
-
     cat_features_p = [
         'event_type_grouped',
         'event_cause',
         'requires_road_closure',
         'veh_type_grouped',
         'day_of_week',
+        'zone',
     ]
 
     num_features_p = [
@@ -35,25 +35,43 @@ def evaluate_models():
         'month',
         'is_peak_hour',
         'is_weekend',
-        'is_cascaded',
-        'cascade_size',
     ]
     features_p = cat_features_p + num_features_p
 
     for col in cat_features_p:
         pdf[col] = pdf[col].fillna('unknown').astype(str)
     for col in num_features_p:
-        pdf[col] = pdf[col].fillna(pdf[col].median())
+        if pdf[col].isnull().any():
+            pdf[col] = pdf[col].fillna(pdf[col].median())
 
     X_p = pdf[features_p]
     y_p = pdf['priority_target']
-    _, X_test_p, _, y_test_p = train_test_split(X_p, y_p, test_size=0.20, random_state=42, stratify=y_p)
+    
+    _, X_test_p, y_train_p, y_test_p = train_test_split(X_p, y_p, test_size=0.20, random_state=42, stratify=y_p)
 
     model_p = CatBoostClassifier()
     model_p.load_model('../trained_model/priority_catboost_model.cbm')
     y_pred_p = model_p.predict(X_test_p)
-    
+    y_pred_p = np.array([int(p) for p in y_pred_p])
+
+    print("\n\n=== PRIORITY MODEL ===")
     print("ALL TEST DATA (Priority)")
+    
+    # --- Baseline calculation ---
+    # Most frequent class in train
+    from collections import Counter
+    majority_class_p = Counter(y_train_p).most_common(1)[0][0]
+    baseline_pred_p = [majority_class_p] * len(y_test_p)
+    
+    from sklearn.metrics import accuracy_score, f1_score
+    b_acc_p = accuracy_score(y_test_p, baseline_pred_p)
+    b_f1_p = f1_score(y_test_p, baseline_pred_p, average='macro')
+    print(f"BASELINE: Accuracy={b_acc_p:.4f}, Macro-F1={b_f1_p:.4f}")
+    
+    m_acc_p = accuracy_score(y_test_p, y_pred_p)
+    m_f1_p = f1_score(y_test_p, y_pred_p, average='macro')
+    print(f"MODEL: Accuracy={m_acc_p:.4f}, Macro-F1={m_f1_p:.4f}")
+    
     print(classification_report(y_test_p, y_pred_p))
     print(confusion_matrix(y_test_p, y_pred_p))
     
@@ -80,15 +98,31 @@ def evaluate_models():
 
     X_c = cdf[features_c]
     y_c = cdf['target']
-    _, X_test_c, _, y_test_c = train_test_split(X_c, y_c, test_size=0.20, random_state=42, stratify=y_c)
+    _, X_test_c, y_train_c, y_test_c = train_test_split(X_c, y_c, test_size=0.20, random_state=42, stratify=y_c)
 
     model_c = CatBoostClassifier()
     model_c.load_model('../trained_model/road_closure_catboost_model.cbm')
     y_pred_c = model_c.predict(X_test_c)
-    y_proba_c = model_c.predict_proba(X_test_c)[:, 1]
+    y_pred_proba_c = model_c.predict_proba(X_test_c)[:, 1]
 
+    print("\n\n=== CLOSURE MODEL ===")
     print("ALL TEST DATA (Closure)")
-    print(f"ROC-AUC: {roc_auc_score(y_test_c, y_proba_c):.4f}")
+    
+    # --- Baseline calculation ---
+    from collections import Counter
+    majority_class_c = Counter(y_train_c).most_common(1)[0][0]
+    baseline_pred_c = [majority_class_c] * len(y_test_c)
+    
+    b_acc_c = accuracy_score(y_test_c, baseline_pred_c)
+    b_f1_c = f1_score(y_test_c, baseline_pred_c, average='macro')
+    print(f"BASELINE: Accuracy={b_acc_c:.4f}, Macro-F1={b_f1_c:.4f}")
+    
+    m_acc_c = accuracy_score(y_test_c, y_pred_c)
+    m_f1_c = f1_score(y_test_c, y_pred_c, average='macro')
+    print(f"MODEL: Accuracy={m_acc_c:.4f}, Macro-F1={m_f1_c:.4f}")
+
+    roc_auc = roc_auc_score(y_test_c, y_pred_proba_c)
+    print(f"ROC-AUC: {roc_auc:.4f}")
     print(classification_report(y_test_c, y_pred_c))
     
     planned_idx_c = X_test_c['event_type_grouped'] == 'planned'
