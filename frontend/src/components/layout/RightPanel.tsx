@@ -61,11 +61,11 @@ export function RightPanel() {
     <aside className="right-panel">
 
       {/* Quick stats strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
         <Link href="/incidents/new" style={{ textDecoration: 'none' }}>
           <div className="right-panel-grid-item">
-            <div className="right-panel-grid-icon">
-              <AlertTriangle size={15} style={{ color: '#DC2626' }} />
+            <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
+              <AlertTriangle size={15} style={{ color: '#6B7280' }} />
             </div>
             <div style={{ lineHeight: 1.2 }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>{kpis?.active_incidents ?? '—'}</div>
@@ -76,8 +76,8 @@ export function RightPanel() {
 
         <Link href="/stations" style={{ textDecoration: 'none' }}>
           <div className="right-panel-grid-item">
-            <div className="right-panel-grid-icon">
-              <Radio size={15} style={{ color: '#2563EB' }} />
+            <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
+              <Radio size={15} style={{ color: '#6B7280' }} />
             </div>
             <div style={{ lineHeight: 1.2 }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>{kpis?.resources_deployed ?? '—'}</div>
@@ -87,8 +87,8 @@ export function RightPanel() {
         </Link>
 
         <div className="right-panel-grid-item" style={{ cursor: 'default' }}>
-          <div className="right-panel-grid-icon">
-            <Clock size={15} style={{ color: '#D97706' }} />
+          <div className="right-panel-grid-icon" style={{ background: '#F3F4F6' }}>
+            <Clock size={15} style={{ color: '#6B7280' }} />
           </div>
           <div style={{ lineHeight: 1.2 }}>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#111111' }}>
@@ -98,19 +98,19 @@ export function RightPanel() {
           </div>
         </div>
 
-        <div className="right-panel-grid-item" style={{ cursor: 'default' }}>
-          <div className="right-panel-grid-icon">
-            <Activity size={15} style={{ color: p1Count > 0 ? '#DC2626' : '#9CA3AF' }} />
+        <div className="right-panel-grid-item" style={{ background: p1Count > 0 ? '#FEE2E2' : '#FFFFFF', borderColor: p1Count > 0 ? '#FECACA' : '#E5E5E5', cursor: 'default' }}>
+          <div className="right-panel-grid-icon" style={{ background: p1Count > 0 ? '#FFFFFF' : '#F3F4F6' }}>
+            <AlertTriangle size={15} style={{ color: p1Count > 0 ? '#DC2626' : '#6B7280' }} />
           </div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: p1Count > 0 ? '#DC2626' : '#111111' }}>{p1Count}</div>
-            <span className="right-panel-grid-label" style={{ fontSize: 11, color: '#6B7280', fontWeight: 500 }}>P1 Critical</span>
+            <div style={{ fontSize: 24, fontWeight: 900, color: p1Count > 0 ? '#DC2626' : '#111111' }}>{p1Count}</div>
+            <span className="right-panel-grid-label" style={{ fontSize: 11, color: p1Count > 0 ? '#DC2626' : '#6B7280', fontWeight: 700 }}>P1 Critical</span>
           </div>
         </div>
       </div>
 
       {/* Live Activity Feed */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, padding: '0 4px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           Live Activity
         </div>
@@ -119,7 +119,7 @@ export function RightPanel() {
         </Link>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {isLoading ? (
           <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', padding: '16px 0' }}>
             Loading…
@@ -132,33 +132,36 @@ export function RightPanel() {
           recentFive.map(inc => {
             const priority = inc.predicted_priority ?? 'P4';
             const c = PRIORITY_COLORS[priority] ?? { bg: '#F3F4F6', text: '#6B7280' };
-            const statusIcon = STATUS_ICONS[inc.status] ?? <Clock size={12} style={{ color: '#9CA3AF' }} />;
 
             return (
               <Link
                 key={inc.incident_id}
                 href={`/incidents/${encodeURIComponent(inc.incident_id)}`}
                 className="right-panel-link"
-                style={{ flexDirection: 'column', gap: 6, alignItems: 'stretch', cursor: 'pointer', textDecoration: 'none' }}
+                style={{ flexDirection: 'column', padding: '14px 16px', gap: 8, alignItems: 'stretch', cursor: 'pointer', textDecoration: 'none' }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {statusIcon}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="right-panel-link-icon" style={{ background: c.bg, width: 24, height: 24, borderRadius: 6 }}>
+                      <Activity size={12} style={{ color: c.text }} />
+                    </div>
                     <span style={{
-                      padding: '1px 7px', borderRadius: 9999,
+                      padding: '2px 8px', borderRadius: 9999,
                       fontSize: 10, fontWeight: 700,
                       background: c.bg, color: c.text,
                     }}>
                       {priority}
                     </span>
                   </div>
-                  <span style={{ fontSize: 10, color: '#9CA3AF' }}>{timeAgo(inc.created_at)}</span>
+                  <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}>{timeAgo(inc.created_at)}</span>
                 </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#111111', lineHeight: 1.3 }}>
-                  {inc.incident_type || 'Unknown'}
-                </div>
-                <div style={{ fontSize: 11, color: '#6B7280' }}>
-                  {inc.corridor || inc.location || inc.incident_id}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111111', lineHeight: 1.3 }}>
+                    {inc.incident_type || 'Unknown'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
+                    {inc.corridor || inc.location || inc.incident_id}
+                  </div>
                 </div>
               </Link>
             );
