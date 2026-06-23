@@ -62,7 +62,7 @@ export default function PlannedEventPage() {
   return (
     <>
       <PageHeading title="Log Planned Event" />
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto flex gap-6">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-4 md:px-7 pb-7 overflow-auto flex flex-col lg:flex-row gap-6">
         
         {/* Form Column */}
         <div className="flex-1 flex flex-col gap-6 max-w-2xl">
@@ -80,7 +80,7 @@ export default function PlannedEventPage() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="form-group">
                   <label className="form-label">Location (Junction/Landmark)</label>
                   <input className="form-input" required value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. MG Road" />

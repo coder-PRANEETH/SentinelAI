@@ -30,7 +30,7 @@ export function Sidebar() {
         <Plus size={18} style={{ flexShrink: 0 }} />
         <span>New Incident</span>
       </Link>
-      <Link href="/incidents/planned" className="sidebar-create-btn" style={{ marginTop: '8px', background: 'var(--surface)' }} title="Log Planned Event">
+      <Link href="/incidents/planned" className="sidebar-create-btn hidden md:flex" style={{ marginTop: '8px', background: 'var(--surface)' }} title="Log Planned Event">
         <Calendar size={18} style={{ flexShrink: 0 }} />
         <span>Planned Event</span>
       </Link>
@@ -53,7 +53,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div style={{ flex: 1 }} />
+      <div className="hidden md:block flex-1" />
 
       {/* Bottom: settings + avatar */}
       <div className="sidebar-bottom">

@@ -47,7 +47,7 @@ export default function MapPage() {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="flex-1 px-7 pb-7"
+        className="flex-1 px-4 md:px-7 pb-7"
       >
         <div style={{ position: 'relative', height: '100%' }}>
           <div className="card" style={{ padding: 0, position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

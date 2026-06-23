@@ -81,7 +81,7 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
 
           {/* Search bar */}
@@ -156,8 +156,9 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                 <EmptyState message="No matching historical incidents found. Try a different query." />
               ) : (
                 <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                  <table className="data-table">
-                    <thead>
+                  <div className="overflow-x-auto">
+                    <table className="data-table min-w-[800px] w-full">
+                      <thead>
                       <tr>
                         <th>Match</th>
                         <th>Corridor</th>
@@ -199,7 +200,7 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                                   exit={{ height: 0, opacity: 0 }} 
                                   style={{ background: 'var(--bg)', padding: '16px 20px', overflow: 'hidden' }}
                                 >
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', fontSize: '12px' }}>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                                     <div><span style={{ color: 'var(--muted)' }}>Junction:</span> {c.junction || '—'}</div>
                                     <div><span style={{ color: 'var(--muted)' }}>Police Station:</span> {c.police_station || '—'}</div>
                                     <div><span style={{ color: 'var(--muted)' }}>Status:</span> {c.status || '—'}</div>
@@ -213,6 +214,7 @@ export default function HistoryPage({ hideHeading = false }: { hideHeading?: boo
                       ))}
                     </motion.tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </motion.div>

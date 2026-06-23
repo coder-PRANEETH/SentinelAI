@@ -32,7 +32,7 @@ export default function SettingsPage() {
         </>
       } />
       
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-4 md:px-7 pb-7 overflow-auto">
         <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
           {/* Profile Section */}
@@ -40,7 +40,7 @@ export default function SettingsPage() {
             <h3 style={{ fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <User size={18} /> User Profile
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="form-group">
                 <label className="form-label">Username</label>
                 <input type="text" className="form-input" value={user?.username || ''} disabled style={{ background: 'var(--bg)' }} />

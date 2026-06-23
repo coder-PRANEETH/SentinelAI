@@ -502,7 +502,7 @@ export default function IncidentDetailPage() {
     return (
       <>
         <PageHeading title="Incident Detail" />
-        <div className="flex-1 px-7 pb-7 flex items-center justify-center">
+        <div className="flex-1 px-4 md:px-7 pb-7 flex items-center justify-center">
           <ErrorState message="Could not load incident. It may not exist." onRetry={() => router.refresh()} />
         </div>
       </>
@@ -538,9 +538,9 @@ export default function IncidentDetailPage() {
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20, maxWidth: 1200 }}>
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_380px] gap-5 max-w-[1200px]">
 
           {/* ── Left column ── */}
           <motion.div 
@@ -589,7 +589,7 @@ export default function IncidentDetailPage() {
               </div>
 
               {/* Detail fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {[
                   { label: 'Event Cause', value: incident.event_cause || '—' },
                   { label: 'Vehicle Type', value: incident.vehicle_type || '—' },

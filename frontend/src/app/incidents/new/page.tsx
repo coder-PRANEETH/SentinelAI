@@ -528,8 +528,8 @@ export default function NewIncidentPage() {
   return (
     <>
       <PageHeading title="New Incident" />
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-7 pb-7 overflow-auto">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 420px', gap: '24px', maxWidth: '1280px' }}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="flex-1 px-4 md:px-7 pb-7 overflow-auto">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_420px] gap-6 max-w-[1280px]">
             {/* LEFT: Input form */}
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 

@@ -61,7 +61,7 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
 
           {/* ── Page heading ─────────────────────────────────────────────── */}
@@ -132,7 +132,8 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
             ) : error ? (
               <ErrorState message="Failed to load stations." onRetry={mutate} />
             ) : (
-              <table className="data-table">
+              <div className="overflow-x-auto">
+                <table className="data-table min-w-[800px] w-full">
                 <thead>
                   <tr>
                     <th>Station Name</th>
@@ -184,6 +185,7 @@ export default function StationsPage({ hideHeading = false }: { hideHeading?: bo
                   ))}
                 </motion.tbody>
               </table>
+              </div>
             )}
           </motion.div>
       </motion.div>

@@ -37,16 +37,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       >
         <AuthProvider>
           <IncidentRealtimeSync />
-          <div
-            style={{
-              display: 'flex',
-              height: '100vh',
-              backgroundColor: '#FFFFFF',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="flex flex-col-reverse md:flex-row h-[100dvh] bg-white overflow-hidden">
             <Sidebar />
-            <main style={{ flex: 1, overflowY: 'auto', backgroundColor: '#FFFFFF' }}>
+            <main className="flex-1 overflow-y-auto bg-white relative">
               {children}
             </main>
             <RightPanel />

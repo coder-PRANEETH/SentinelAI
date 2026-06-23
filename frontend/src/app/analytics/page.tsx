@@ -45,11 +45,11 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
 
           {/* Row 1: Model accuracy KPIs */}
-          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <KPICard
               label="Priority Accuracy"
               value={accuracy ? `${accuracy.priority_accuracy.toFixed(1)}%` : '—'}
@@ -73,7 +73,7 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
           </motion.div>
 
           {/* Row 2: Charts side by side */}
-          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '16px', marginBottom: '24px' }}>
+          <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} className="grid grid-cols-1 md:grid-cols-[1.5fr_1fr] gap-4 mb-6">
             {/* Incident trend line chart */}
             <div className="chart-container">
               <h3 style={{ fontSize: '13px', fontWeight: 700, marginBottom: '16px' }}>Incident Trend (Last 30 Days)</h3>
@@ -135,7 +135,8 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
                 <Skeleton height={40} />
               </div>
             ) : (
-              <table className="data-table">
+              <div className="overflow-x-auto">
+                <table className="data-table min-w-[700px] w-full">
                 <thead>
                   <tr>
                     <th>Corridor</th>
@@ -161,6 +162,7 @@ export default function AnalyticsPage({ hideHeading = false }: { hideHeading?: b
                   ))}
                 </motion.tbody>
               </table>
+              </div>
             )}
           </motion.div>
       </motion.div>

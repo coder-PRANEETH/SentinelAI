@@ -120,7 +120,7 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
           {/* Station selector */}
           <motion.div variants={{ hidden: { opacity: 0, y: 15 }, visible: { opacity: 1, y: 0 } }} style={{ marginBottom: '20px', maxWidth: '400px' }}>
@@ -168,8 +168,9 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                 </span>
               </div>
 
-              <table className="data-table">
-                <thead>
+              <div className="overflow-x-auto">
+                <table className="data-table min-w-[600px] w-full">
+                  <thead>
                   <tr>
                     <th>Resource Type</th>
                     <th>Total</th>
@@ -226,6 +227,7 @@ function ResourcesContent({ hideHeading = false }: { hideHeading?: boolean } = {
                   })}
                 </motion.tbody>
               </table>
+              </div>
 
               <AnimatePresence>
                 {actionError && (

@@ -149,7 +149,7 @@ export default function DispatchPage() {
       <motion.div 
         initial="hidden" animate="visible" 
         variants={{ visible: { transition: { staggerChildren: 0.1 } } }}
-        className="flex-1 px-7 pb-7 overflow-auto"
+        className="flex-1 px-4 md:px-7 pb-7 overflow-auto"
       >
           <div style={{ maxWidth: '820px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
@@ -158,7 +158,7 @@ export default function DispatchPage() {
               <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 Recommendation Inputs
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="form-group">
                   <label className="form-label">Incident Text</label>
                   <input className="form-input" value={incidentText} onChange={e => setIncidentText(e.target.value)} />
@@ -224,7 +224,7 @@ export default function DispatchPage() {
                     {result.dispatch.recommended_resources.justification}
                   </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
                     { icon: <Users size={18} />, count: result.dispatch.recommended_resources.officers, label: 'Officers' },
                     { icon: <Car size={18} />,   count: result.dispatch.recommended_resources.vehicles,  label: 'Vehicles' },
@@ -466,7 +466,7 @@ function PageShell({ incidentId, children }: { incidentId: string; children: Rea
   return (
     <>
       <PageHeading title={`Dispatch — ${incidentId}`} />
-      <div className="flex-1 px-7 pb-7 overflow-auto">{children}</div>
+      <div className="flex-1 px-4 md:px-7 pb-7 overflow-auto">{children}</div>
     </>
   );
 }

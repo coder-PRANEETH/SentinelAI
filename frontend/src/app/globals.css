@@ -142,7 +142,9 @@ body {
   cursor: pointer;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  min-height: 44px;
   transition: background 0.15s;
 }
 .btn-primary:hover { background: #2A2A2A; }
@@ -155,6 +157,11 @@ body {
   padding: 9px 18px;
   font-size: 13px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
 }
 
 .btn-accent {
@@ -164,6 +171,11 @@ body {
   padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
 }
 
 .btn-danger {
@@ -175,13 +187,18 @@ body {
   font-weight: 600;
   border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
   transition: opacity 0.15s;
 }
 .btn-danger:hover { opacity: 0.9; }
 
 .icon-btn {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 9999px;
   background: #F5F5F3;
   border: 1px solid #E5E5E5;
@@ -193,48 +210,75 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 60px;
+  width: 100%;
+  height: 64px;
   background: #111111;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 16px 12px;
-  gap: 0;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  padding: 8px 12px;
+  gap: 4px;
   flex-shrink: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   z-index: 50;
+  scrollbar-width: none;
 }
+.sidebar::-webkit-scrollbar { display: none; }
 
-.sidebar:hover {
-  width: 200px;
+@media (min-width: 768px) {
+  .sidebar {
+    width: 60px;
+    height: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 16px 12px;
+    gap: 0;
+    overflow: hidden;
+  }
+  .sidebar:hover {
+    width: 200px;
+  }
 }
 
 .sidebar-nav {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 4px;
-  width: 100%;
+  width: auto;
+}
+@media (min-width: 768px) {
+  .sidebar-nav {
+    flex-direction: column;
+    width: 100%;
+  }
 }
 
 .sidebar-bottom {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
+  display: none;
+}
+@media (min-width: 768px) {
+  .sidebar-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
 }
 
 /* Sidebar Buttons Base */
 .sidebar-create-btn,
 .sidebar-icon-btn {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  padding-left: 9px; /* perfectly centers the 18px icon in a 36px box */
-  border-radius: 10px;
+  justify-content: center;
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
@@ -243,17 +287,31 @@ body {
   white-space: nowrap;
 }
 
-.sidebar:hover .sidebar-create-btn,
-.sidebar:hover .sidebar-icon-btn {
-  width: 100%;
+@media (min-width: 768px) {
+  .sidebar-create-btn,
+  .sidebar-icon-btn {
+    width: 36px;
+    height: 36px;
+    justify-content: flex-start;
+    padding-left: 9px;
+    border-radius: 10px;
+  }
+  .sidebar:hover .sidebar-create-btn,
+  .sidebar:hover .sidebar-icon-btn {
+    width: 100%;
+  }
 }
 
 /* Specifics for Create Button */
 .sidebar-create-btn {
   background: #FFFFFF;
   color: #111111;
-  margin-bottom: 24px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+@media (min-width: 768px) {
+  .sidebar-create-btn {
+    margin-bottom: 24px;
+  }
 }
 .sidebar-create-btn:hover {
   transform: scale(1.03);
@@ -276,22 +334,28 @@ body {
 /* Text spans inside buttons */
 .sidebar-create-btn span,
 .sidebar-icon-btn span {
-  opacity: 0;
-  margin-left: 0px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: opacity 0.2s ease, margin-left 0.3s ease;
-  pointer-events: none;
-  display: inline-block;
-}
-.sidebar-create-btn span {
-  font-weight: 600;
+  display: none;
 }
 
-.sidebar:hover .sidebar-create-btn span,
-.sidebar:hover .sidebar-icon-btn span {
-  opacity: 1;
-  margin-left: 14px;
+@media (min-width: 768px) {
+  .sidebar-create-btn span,
+  .sidebar-icon-btn span {
+    opacity: 0;
+    margin-left: 0px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: opacity 0.2s ease, margin-left 0.3s ease;
+    pointer-events: none;
+    display: inline-block;
+  }
+  .sidebar-create-btn span {
+    font-weight: 600;
+  }
+  .sidebar:hover .sidebar-create-btn span,
+  .sidebar:hover .sidebar-icon-btn span {
+    opacity: 1;
+    margin-left: 14px;
+  }
 }
 
 /* Sidebar User Profile */
@@ -412,6 +476,10 @@ body {
   color: #111111;
   transition: all 0.15s;
   user-select: none;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .tab-pill:hover {
   background: #F5F5F3;
@@ -633,6 +701,7 @@ body {
   color: #111111;
   outline: none;
   transition: border-color 0.15s;
+  min-height: 44px;
 }
 select.form-input {
   appearance: none;
