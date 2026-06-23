@@ -39,7 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <IncidentRealtimeSync />
           <div className="flex flex-col-reverse md:flex-row h-[100dvh] bg-white overflow-hidden">
             <Sidebar />
-            <main className="flex-1 overflow-y-auto bg-white relative">
+            <main className="flex-1 flex flex-col overflow-y-auto bg-white relative">
               {children}
             </main>
             <RightPanel />

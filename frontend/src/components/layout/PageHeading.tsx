@@ -1,6 +1,8 @@
-import { Settings } from 'lucide-react';
+'use client';
+import { Settings, LogOut } from 'lucide-react';
 import Link from 'next/link';
 import { Outfit } from 'next/font/google';
+import { useAuth } from '@/lib/auth';
 
 const outfit = Outfit({
   subsets: ['latin'],
@@ -13,12 +15,14 @@ interface PageHeadingProps {
 }
 
 export function PageHeading({ title }: PageHeadingProps) {
+  const { logout } = useAuth();
+
   return (
-    <div className="flex items-center justify-between px-7 pb-5" style={{ paddingLeft: '20px', paddingTop: '16px' }}>
+    <div className="flex flex-col md:flex-row md:items-center justify-between px-4 md:px-7 pb-5 gap-4" style={{ paddingTop: '16px' }}>
       <h1
         className={outfit.className}
         style={{
-          fontSize: '36px',
+          fontSize: 'clamp(22px, 5vw, 36px)',
           fontWeight: 700,
           color: '#111111',
           lineHeight: 1.15,
@@ -32,8 +36,11 @@ export function PageHeading({ title }: PageHeadingProps) {
         {title}
       </h1>
       <div className="flex items-center gap-2">
-        <button className="icon-btn">
-          <Settings size={18} className="text-text-2" />
+        <Link href="/settings" className="icon-btn" title="Settings" style={{ textDecoration: 'none', color: 'var(--text-2)' }}>
+          <Settings size={18} />
+        </Link>
+        <button className="icon-btn md:hidden" onClick={() => logout()} title="Sign Out">
+          <LogOut size={18} className="text-danger" />
         </button>
         <Link href="/incidents/new" className="btn-primary" style={{ textDecoration: 'none' }}>
           + New Incident

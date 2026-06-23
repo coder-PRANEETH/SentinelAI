@@ -207,7 +207,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.3 }}
-            className="col-span-12 lg:col-span-8 card overflow-hidden" 
+            className="col-span-12 lg:col-span-8 card overflow-hidden min-w-0" 
             style={{ padding: 0 }}
           >
               <div className="flex items-center justify-between p-5 border-b border-border">
@@ -320,7 +320,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.2, duration: 0.5 }}
-            className="col-span-12 lg:col-span-4 lg:row-span-2" 
+            className="col-span-12 lg:col-span-4 lg:row-span-2 min-w-0" 
             style={{ position: 'relative', minHeight: '400px' }}
           >
             <div className="card" style={{ padding: 0, position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -347,7 +347,7 @@ export default function DashboardPage() {
             initial="hidden" 
             animate="visible" 
             variants={{ visible: { transition: { staggerChildren: 0.15, delayChildren: 0.2 } } }}
-            className="col-span-12 lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch"
+            className="col-span-12 lg:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch min-w-0"
           >
             <StatCard
               icon={AlertTriangle}
@@ -376,7 +376,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.4 }}
-            className="col-span-12 lg:col-span-4"
+            className="col-span-12 lg:col-span-4 min-w-0"
           >
             <div className="card">
               {isTrendsLoading ? (
@@ -394,7 +394,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4, duration: 0.4 }}
-            className="col-span-12 md:col-span-6 lg:col-span-4"
+            className="col-span-12 md:col-span-6 lg:col-span-4 min-w-0"
           >
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="flex items-center justify-between p-5 border-b border-border">
@@ -448,7 +448,7 @@ export default function DashboardPage() {
             initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, duration: 0.4 }}
-            className="col-span-12 md:col-span-6 lg:col-span-4"
+            className="col-span-12 md:col-span-6 lg:col-span-4 min-w-0"
           >
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div className="flex items-center justify-between p-5 border-b border-border">
