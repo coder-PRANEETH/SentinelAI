@@ -5,7 +5,7 @@
  * this one is unauthenticated, has no incident/station IDs, and stations are keyed by name.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL || 'http://127.0.0.1:5000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://sentinelai-h7ib.onrender.com';
 const DIAGNOSTIC_PATHS = new Set(['/dispatch', '/historical-search', '/station-readiness']);
 
 // Fixed per-station resource caps from final_endpoints/models.py DEFAULT_RESOURCES.

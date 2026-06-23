@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { predict, PredictResponse, FinalApiError } from '@/api/finalEndpointsApi';
 import { Mic, MicOff, Type, Loader2, Play, Square, Volume2, VolumeX, RotateCcw, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useWebSpeech } from '@/hooks/useWebSpeech';
 
 const INCIDENT_TYPES = [
   'Vehicle Breakdown', 'Road Blockage', 'Fallen Tree',
@@ -112,11 +113,11 @@ export default function NewIncidentPage() {
   const [aiFilledFields, setAiFilled] = useState<Set<string>>(new Set());
   const [editedFields, setEditedFields] = useState<Set<string>>(new Set());
 
-  // Recording state (Simple Dictation)
-  const [isRecording, setIsRecording] = useState(false);
-  const [recError, setRecError] = useState('');
+  // Recording state (Simple Dictation via native Web Speech API)
+  const { isListening, error: webSpeechError, toggleListening } = useWebSpeech({
+    onTranscript: (t) => setTranscript(prev => prev ? prev + ' ' + t : t)
+  });
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   // Websocket and recording refs (Interactive Voice Assistant)
   const wsRef = useRef<WebSocket | null>(null);
@@ -422,38 +423,7 @@ export default function NewIncidentPage() {
   };
 
   // ── Voice recording (Simple Dictation) ────────────────────────────────────
-
-  const startRecording = async () => {
-    setRecError('');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      recorder.ondataavailable = (e) => { if (e.data.size) audioChunksRef.current.push(e.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        try {
-          const res = await api.predict.stt(audioBlob);
-          if (res.success && res.transcript) {
-            setTranscript(res.transcript);
-          }
-        } catch (err) {
-          setRecError('Transcription failed. Please try typing.');
-        }
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      setRecError('Microphone access denied. Please allow microphone access and try again.');
-    }
-  };
-
-  const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
-    setIsRecording(false);
-  };
+  // Removed old backend STT in favor of native browser Web Speech API.
 
   // ── Field change tracking ────────────────────────────────────────────────
 
@@ -622,18 +592,18 @@ export default function NewIncidentPage() {
                     <button
                       id="mic-toggle-btn"
                       type="button"
-                      className={`mic-button ${isRecording ? 'recording' : ''}`}
-                      onClick={isRecording ? stopRecording : startRecording}
-                      title={isRecording ? 'Stop recording' : 'Start recording'}
+                      className={`mic-button ${isListening ? 'recording' : ''}`}
+                      onClick={toggleListening}
+                      title={isListening ? 'Stop recording' : 'Start recording'}
                     >
-                      {isRecording ? <MicOff size={24} color="#fff" /> : <Mic size={24} color="#151515" />}
+                      {isListening ? <MicOff size={24} color="#fff" /> : <Mic size={24} color="#151515" />}
                     </button>
-                    {isRecording && (
+                    {isListening && (
                       <span style={{ fontSize: '12px', color: 'var(--p1)', fontWeight: 500 }}>
                         Recording — click to stop
                       </span>
                     )}
-                    {recError && <span style={{ fontSize: '11px', color: 'var(--p1)' }}>{recError}</span>}
+                    {webSpeechError && <span style={{ fontSize: '11px', color: 'var(--p1)' }}>{webSpeechError}</span>}
                   </div>
                 )}
 

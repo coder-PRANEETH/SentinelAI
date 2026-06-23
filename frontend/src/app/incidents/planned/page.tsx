@@ -6,8 +6,9 @@ import { LoadingState } from '@/components/shared/LoadingState';
 import { ReadinessBar } from '@/components/shared/ReadinessBar';
 import { api } from '@/lib/api';
 import { getDispatchRecommendation, getStation } from '@/api/finalEndpointsApi';
-import { Users, Shield, MapPin, Calendar, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { Users, Shield, MapPin, Calendar, Clock, AlertTriangle, Loader2, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useWebSpeech } from '@/hooks/useWebSpeech';
 
 export default function PlannedEventPage() {
   const router = useRouter();
@@ -20,6 +21,12 @@ export default function PlannedEventPage() {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [forecast, setForecast] = useState<any>(null);
+
+  const { isListening, toggleListening } = useWebSpeech({
+    onTranscript: (text) => {
+      setDescription(prev => prev ? `${prev} ${text}` : text);
+    }
+  });
 
   // Feedback State
   const [showFeedback, setShowFeedback] = useState(false);
@@ -134,7 +141,21 @@ export default function PlannedEventPage() {
               </div>
               
               <div className="form-group">
-                <label className="form-label">Description / Impact Notes</label>
+                <div className="flex items-center justify-between">
+                  <label className="form-label">Description / Impact Notes</label>
+                  <button 
+                    type="button"
+                    onClick={toggleListening}
+                    className={`flex items-center gap-2 px-2 py-1 rounded transition-colors text-xs font-semibold
+                      ${isListening ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'bg-surface text-text-2 hover:bg-black/5 hover:text-text-1'}`}
+                  >
+                    {isListening ? (
+                      <><MicOff size={14} className="animate-pulse" /> Recording...</>
+                    ) : (
+                      <><Mic size={14} /> Dictate</>
+                    )}
+                  </button>
+                </div>
                 <textarea className="textarea" required rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="Describe expected route or impact..." />
               </div>
 

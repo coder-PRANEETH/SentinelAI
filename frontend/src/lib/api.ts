@@ -8,8 +8,8 @@
  * - Returns typed responses
  */
 
-const FLASK_BASE = process.env.NEXT_PUBLIC_FLASK_API_URL || 'http://localhost:5001';
-const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_URL || 'http://localhost:8000';
+const FLASK_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://sentinelai-h7ib.onrender.com';
+const FASTAPI_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://sentinelai-h7ib.onrender.com';
 
 export type ApiError = {
   error: string;

@@ -15,7 +15,7 @@ import { BENGALURU_STATIONS } from "./stationsData";
 import { distanceKm, etaMinutes } from "./geo";
 
 const FINAL_ENDPOINTS_BASE =
-  process.env.NEXT_PUBLIC_FINAL_ENDPOINTS_API_URL || "http://127.0.0.1:5000";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "https://sentinelai-h7ib.onrender.com";
 
 /**
  * Resolve a free-text address/landmark to coordinates, for the manual
