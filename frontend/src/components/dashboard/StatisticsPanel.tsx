@@ -32,12 +32,12 @@ export function StatisticsPanel({ data }: { data: TrendData[] }) {
 
   return (
     <div style={{ padding: '4px' }}>
-      <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
+      <div className="flex flex-wrap items-center justify-between gap-4" style={{ marginBottom: '20px' }}>
         <div className="flex items-center gap-2">
           <BarChart2 size={16} className="text-text-2" />
           <span className="text-base font-semibold text-text-1">Incident Trends</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-xs text-text-1 font-medium">
               <span className="w-2 h-2 rounded-full inline-block" style={{ background: '#111111' }} />
