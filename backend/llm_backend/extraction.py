@@ -177,12 +177,12 @@ def extract_incident_fields(transcript: str) -> dict[str, Any]:
     }
 
 
-def extract_incident_fields_llm(transcript: str) -> Optional[dict[str, Any]]:
+def extract_incident_fields_fallback(transcript: str) -> Optional[dict[str, Any]]:
     """Extract incident fields using the configured Gemini model."""
     try:
-        model = get_model_registry().get_gemini_model(os.getenv("GEMINI_EXTRACTION_MODEL", "gemini-2.0-flash"))
+        model = get_model_registry().get_fallback_llm_model(os.getenv("LLM_FALLBACK_MODEL", "gemini-2.0-flash"))
     except ConfigurationError as exc:
-        log_event(logger, 30, "provider_unavailable", "Gemini extraction unavailable", error=str(exc))
+        log_event(logger, 30, "provider_unavailable", "Fallback LLM extraction unavailable", error=str(exc))
         return None
 
     try:
@@ -197,22 +197,22 @@ def extract_incident_fields_llm(transcript: str) -> Optional[dict[str, Any]]:
         if not isinstance(extracted, dict):
             return None
         _apply_extraction_defaults(extracted, transcript)
-        log_event(logger, 20, "extraction_success", "Gemini extraction successful", method="gemini")
+        log_event(logger, 20, "extraction_success", "Fallback LLM extraction successful", method="gemini")
         return extracted
     except json.JSONDecodeError as exc:
-        log_event(logger, 40, "json_parse_failed", "Failed to parse Gemini extraction JSON", error=str(exc))
+        log_event(logger, 40, "json_parse_failed", "Failed to parse Fallback LLM extraction JSON", error=str(exc))
         return None
     except Exception as exc:
-        log_event(logger, 40, "provider_failed", "Gemini extraction failed", error=str(exc))
+        log_event(logger, 40, "provider_failed", "Fallback LLM extraction failed", error=str(exc))
         return None
 
 
-def extract_incident_fields_openai(transcript: str) -> Optional[dict[str, Any]]:
-    """Extract incident fields using the configured OpenAI chat model."""
+def extract_incident_fields_primary(transcript: str) -> Optional[dict[str, Any]]:
+    """Extract incident fields using the configured Primary LLM chat model."""
     try:
-        client = get_model_registry().get_openai_client()
+        client = get_model_registry().get_primary_llm_client()
     except ConfigurationError as exc:
-        log_event(logger, 30, "provider_unavailable", "OpenAI extraction unavailable", error=str(exc))
+        log_event(logger, 30, "provider_unavailable", "Primary LLM extraction unavailable", error=str(exc))
         return None
 
     system_prompt = f"""You are an expert traffic incident analyzer for roads.
@@ -238,7 +238,7 @@ city, state, country, severity_indicators, normalized_text, confidence."""
 
     try:
         response = client.chat.completions.create(
-            model=os.getenv("OPENAI_EXTRACTION_MODEL", "gpt-4o-mini"),
+            model=os.getenv("LLM_PRIMARY_MODEL", "gpt-4o-mini"),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Analyze this incident report:\n\n{transcript}"},
@@ -255,10 +255,10 @@ city, state, country, severity_indicators, normalized_text, confidence."""
         if not isinstance(extracted, dict):
             return None
         _apply_extraction_defaults(extracted, transcript)
-        log_event(logger, 20, "extraction_success", "OpenAI extraction successful", method="openai")
+        log_event(logger, 20, "extraction_success", "Primary LLM extraction successful", method="openai")
         return extracted
     except Exception as exc:
-        log_event(logger, 40, "provider_failed", "OpenAI extraction failed", error=str(exc))
+        log_event(logger, 40, "provider_failed", "Primary LLM extraction failed", error=str(exc))
         return None
 
 
@@ -268,14 +268,14 @@ def extract_with_best_provider(transcript: str) -> dict[str, Any]:
     if not clean_transcript:
         raise ExtractionError("Transcript is empty")
 
-    if os.getenv("USE_OPENAI_EXTRACTION", "false").lower() == "true":
-        extracted = extract_incident_fields_openai(clean_transcript)
+    if os.getenv("USE_LLM_EXTRACTION_PRIMARY", "false").lower() == "true":
+        extracted = extract_incident_fields_primary(clean_transcript)
         if extracted:
             extracted["extraction_method"] = "openai"
             return extracted
 
-    if os.getenv("USE_LLM_EXTRACTION", "false").lower() == "true":
-        extracted = extract_incident_fields_llm(clean_transcript)
+    if os.getenv("USE_LLM_EXTRACTION_FALLBACK", "false").lower() == "true":
+        extracted = extract_incident_fields_fallback(clean_transcript)
         if extracted:
             extracted["extraction_method"] = "llm"
             return extracted

@@ -29,9 +29,9 @@ class ModelRegistry:
     def _init_once(self) -> None:
         self._resource_lock = threading.RLock()
         self._whisper_model: Any = None
-        self._openai_client: Any = None
-        self._gemini_configured_key: Optional[str] = None
-        self._gemini_models: dict[str, Any] = {}
+        self._primary_llm_client: Any = None
+        self._fallback_llm_configured_key: Optional[str] = None
+        self._fallback_llm_models: dict[str, Any] = {}
         self._geocoder: Any = None
 
     def get_whisper_model(
@@ -88,51 +88,51 @@ class ModelRegistry:
 
             raise ConfigurationError("Unable to load Whisper model") from last_error
 
-    def get_openai_client(self) -> Any:
-        """Return a singleton OpenAI client when OPENAI_API_KEY is configured."""
+    def get_primary_llm_client(self) -> Any:
+        """Return a singleton Primary LLM client when LLM_PRIMARY_API_KEY is configured."""
         with self._resource_lock:
-            if self._openai_client is not None:
-                return self._openai_client
+            if self._primary_llm_client is not None:
+                return self._primary_llm_client
 
-            api_key = os.getenv("OPENAI_API_KEY", "").strip()
+            api_key = os.getenv("LLM_PRIMARY_API_KEY", "").strip()
             if not api_key:
-                raise ConfigurationError("OPENAI_API_KEY is not configured")
+                raise ConfigurationError("LLM_PRIMARY_API_KEY is not configured")
 
             try:
                 from openai import OpenAI
             except ImportError as exc:
                 raise ConfigurationError("openai is not installed") from exc
 
-            self._openai_client = OpenAI(api_key=api_key)
-            log_event(logger, 20, "client_loaded", "OpenAI client initialized", provider="openai")
-            return self._openai_client
+            self._primary_llm_client = OpenAI(api_key=api_key)
+            log_event(logger, 20, "client_loaded", "Primary LLM client initialized", provider="openai")
+            return self._primary_llm_client
 
-    def get_gemini_model(self, model_name: str) -> Any:
-        """Return a singleton Gemini model by model name."""
+    def get_fallback_llm_model(self, model_name: str) -> Any:
+        """Return a singleton Fallback LLM model by model name."""
         with self._resource_lock:
-            if model_name in self._gemini_models:
-                return self._gemini_models[model_name]
+            if model_name in self._fallback_llm_models:
+                return self._fallback_llm_models[model_name]
 
-            api_key = os.getenv("GEMINI_API_KEY", "").strip()
+            api_key = os.getenv("LLM_FALLBACK_API_KEY", "").strip()
             if not api_key:
-                raise ConfigurationError("GEMINI_API_KEY is not configured")
+                raise ConfigurationError("LLM_FALLBACK_API_KEY is not configured")
 
             try:
                 import google.generativeai as genai
             except ImportError as exc:
                 raise ConfigurationError("google-generativeai is not installed") from exc
 
-            if self._gemini_configured_key != api_key:
+            if self._fallback_llm_configured_key != api_key:
                 genai.configure(api_key=api_key)
-                self._gemini_configured_key = api_key
+                self._fallback_llm_configured_key = api_key
 
             model = genai.GenerativeModel(model_name=model_name)
-            self._gemini_models[model_name] = model
+            self._fallback_llm_models[model_name] = model
             log_event(
                 logger,
                 20,
                 "model_loaded",
-                "Gemini model initialized",
+                "Fallback LLM model initialized",
                 provider="gemini",
                 model=model_name,
             )

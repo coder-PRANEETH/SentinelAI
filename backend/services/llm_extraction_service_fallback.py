@@ -1,5 +1,5 @@
 """
-LLM-based incident extraction using Google Gemini API.
+LLM-based incident extraction using Google fallback LLM API.
 Provides intelligent extraction of incident fields from transcripts.
 """
 
@@ -17,10 +17,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Initialize Gemini API
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GENAI_AVAILABLE and GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Initialize fallback LLM API
+LLM_FALLBACK_API_KEY = os.getenv("LLM_FALLBACK_API_KEY")
+if GENAI_AVAILABLE and LLM_FALLBACK_API_KEY:
+    genai.configure(api_key=LLM_FALLBACK_API_KEY)
 
 # Schema for LLM response
 EXTRACTION_SCHEMA = {
@@ -61,9 +61,9 @@ Important:
 6. If event_cause is not explicitly labeled but can be inferred from context (e.g. "tyre burst", "engine failure"), extract it. Otherwise, leave it null."""
 
 
-def extract_incident_fields_llm(transcript: str) -> Optional[dict]:
+def extract_incident_fields_fallback(transcript: str) -> Optional[dict]:
     """
-    Extract incident fields using Google Gemini LLM.
+    Extract incident fields using fallback LLM.
     
     Args:
         transcript: Raw incident transcript
@@ -72,26 +72,26 @@ def extract_incident_fields_llm(transcript: str) -> Optional[dict]:
         Dictionary with extracted fields or None if extraction fails
         
     Raises:
-        Exception: If Gemini API call fails
+        Exception: If fallback LLM API call fails
     """
     if not GENAI_AVAILABLE:
         logger.warning("google.generativeai not available, LLM extraction unavailable")
         return None
     
-    if not GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not configured, LLM extraction unavailable")
+    if not LLM_FALLBACK_API_KEY:
+        logger.warning("LLM_FALLBACK_API_KEY not configured, LLM extraction unavailable")
         return None
     
     try:
         # Create prompt with transcript
         prompt = EXTRACTION_PROMPT.format(transcript=transcript)
         
-        # Call Gemini API
+        # Call fallback LLM API
         model = genai.GenerativeModel("gemini-2.0-flash")
         response = model.generate_content(prompt)
         
         if not response.text:
-            logger.error("Empty response from Gemini API")
+            logger.error("Empty response from fallback LLM API")
             return None
         
         # Parse JSON response
@@ -119,12 +119,12 @@ def extract_incident_fields_llm(transcript: str) -> Optional[dict]:
         # Add normalized_text for consistency with rule-based extraction
         extracted["normalized_text"] = transcript.lower()
         
-        logger.info(f"LLM extraction successful: {extracted.get('event_type')}")
+        logger.info(f"Extraction via LLM (gemini) successful: {extracted.get('event_type')}")
         return extracted
     
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse JSON from Gemini: {str(e)}")
+        logger.error(f"Failed to parse JSON from fallback LLM: {str(e)}")
         return None
     except Exception as e:
-        logger.error(f"LLM extraction failed: {str(e)}")
+        logger.error(f"Extraction via LLM (gemini) failed: {str(e)}")
         return None

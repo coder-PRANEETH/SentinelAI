@@ -11,19 +11,19 @@ except ImportError:
 
 def answer_incident_question(question: str, incident: Dict[str, Any]) -> Dict[str, str]:
     incident = incident or {}
-    use_llm_chat = os.getenv("USE_LLM_CHAT", "false").lower() == "true"
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    use_llm_chat = os.getenv("USE_LLM_CHAT_FALLBACK", "false").lower() == "true"
+    fallback_llm_key = os.getenv("LLM_FALLBACK_API_KEY", "").strip()
 
-    if use_llm_chat and gemini_key and genai is not None:
+    if use_llm_chat and fallback_llm_key and genai is not None:
         try:
-            return _answer_with_gemini(question, incident, gemini_key)
+            return _answer_with_fallback_llm(question, incident, fallback_llm_key)
         except Exception as e:
-            logging.warning(f"Gemini chat failed, falling back to rule-based chat: {e}")
+            logging.warning(f"Fallback LLM chat failed, falling back to rule-based chat: {e}")
 
     return _answer_rule_based(question, incident)
 
 
-def _answer_with_gemini(question: str, incident: Dict[str, Any], api_key: str) -> Dict[str, str]:
+def _answer_with_fallback_llm(question: str, incident: Dict[str, Any], api_key: str) -> Dict[str, str]:
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name="gemini-1.5-mini")
     incident_json = json.dumps(incident, indent=2, ensure_ascii=False)
@@ -51,7 +51,7 @@ def _answer_with_gemini(question: str, incident: Dict[str, Any], api_key: str) -
 
     answer = answer_text.strip() if isinstance(answer_text, str) else ""
     if not answer:
-        raise RuntimeError("Gemini returned no answer")
+        raise RuntimeError("Fallback LLM returned no answer")
 
     return {"answer": answer, "source": "llm"}
 

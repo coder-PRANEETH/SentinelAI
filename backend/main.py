@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.wsgi import WSGIMiddleware
 from schemas import IncidentRequest, InteractiveVoiceSessionRequest, IncidentSummaryRequest, LocationExtractRequest, VoiceReportRequest, DispatchIncidentRequest, IncidentChatRequest
 from services.extraction_service import extract_incident_fields
-from services.llm_extraction_service import extract_incident_fields_llm
-from services.openai_extraction_service import extract_incident_fields_openai
+from services.llm_extraction_service_primary import extract_incident_fields_primary
+from services.llm_extraction_service_fallback import extract_incident_fields_fallback
 from services.location_service import resolve_location
 from services.geocoding_service import geocode_location
 from services.severity_service import assess_severity
@@ -95,16 +95,16 @@ TEMP_UPLOADS_DIR = "temp_uploads"
 Path(TEMP_UPLOADS_DIR).mkdir(exist_ok=True)
 
 # Configuration
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-USE_LLM_EXTRACTION = os.getenv("USE_LLM_EXTRACTION", "false").lower() == "true"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-USE_OPENAI_EXTRACTION = os.getenv("USE_OPENAI_EXTRACTION", "false").lower() == "true"
+LLM_FALLBACK_API_KEY = os.getenv("LLM_FALLBACK_API_KEY")
+USE_LLM_EXTRACTION_FALLBACK = os.getenv("USE_LLM_EXTRACTION_FALLBACK", "false").lower() == "true"
+LLM_PRIMARY_API_KEY = os.getenv("LLM_PRIMARY_API_KEY")
+USE_LLM_EXTRACTION_PRIMARY = os.getenv("USE_LLM_EXTRACTION_PRIMARY", "false").lower() == "true"
 
 
 def process_incident_pipeline(transcript: str) -> dict:
     """
     Process incident through extraction pipeline:
-    1. OpenAI extraction (if enabled and API key exists)
+    1. Primary LLM extraction (if enabled and API key exists)
     2. Gemini LLM extraction (if enabled and API key exists)
     3. Rule-based extraction (fallback)
     
@@ -116,27 +116,27 @@ def process_incident_pipeline(transcript: str) -> dict:
     """
     extraction_method = "rule_based_fallback"
     
-    # Priority 1: Try OpenAI extraction if enabled and API key exists
-    if USE_OPENAI_EXTRACTION and OPENAI_API_KEY:
+    # Priority 1: Try Primary LLM extraction if enabled and API key exists
+    if USE_LLM_EXTRACTION_PRIMARY and LLM_PRIMARY_API_KEY:
         try:
-            extracted = extract_incident_fields_openai(transcript)
+            extracted = extract_incident_fields_primary(transcript)
             if extracted:
                 extracted["extraction_method"] = "openai"
-                logger.info("Extraction via OpenAI successful")
+                logger.info("Extraction via LLM (openai) successful")
                 return extracted
         except Exception as e:
-            logger.warning(f"OpenAI extraction failed, trying next method: {str(e)}")
+            logger.warning(f"Extraction via LLM (openai) failed, trying next method: {str(e)}")
     
-    # Priority 2: Try LLM extraction if enabled and API key exists
-    if USE_LLM_EXTRACTION and GEMINI_API_KEY:
+    # Priority 2: Try Fallback LLM extraction if enabled and API key exists
+    if USE_LLM_EXTRACTION_FALLBACK and LLM_FALLBACK_API_KEY:
         try:
-            extracted = extract_incident_fields_llm(transcript)
+            extracted = extract_incident_fields_fallback(transcript)
             if extracted:
                 extracted["extraction_method"] = "llm"
-                logger.info("Extraction via Gemini LLM successful")
+                logger.info("Extraction via LLM (gemini) successful")
                 return extracted
         except Exception as e:
-            logger.warning(f"LLM extraction failed, falling back to rule-based: {str(e)}")
+            logger.warning(f"Extraction via LLM (gemini) failed, falling back to rule-based: {str(e)}")
     
     # Priority 3: Fallback to rule-based extraction
     extracted = extract_incident_fields(transcript)

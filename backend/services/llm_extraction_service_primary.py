@@ -1,4 +1,4 @@
-"""OpenAI-powered incident field extraction with structured output."""
+"""Primary LLM-powered incident field extraction with structured output."""
 import os
 import json
 import logging
@@ -7,9 +7,9 @@ from openai import OpenAI, APIError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+# Initialize primary LLM client
+LLM_PRIMARY_API_KEY = os.getenv("LLM_PRIMARY_API_KEY")
+client = OpenAI(api_key=LLM_PRIMARY_API_KEY) if LLM_PRIMARY_API_KEY else None
 
 # Default location for fallback
 DEFAULT_CITY = os.getenv("DEFAULT_CITY", "Coimbatore")
@@ -17,7 +17,7 @@ DEFAULT_STATE = os.getenv("DEFAULT_STATE", "Tamil Nadu")
 DEFAULT_COUNTRY = os.getenv("DEFAULT_COUNTRY", "India")
 
 
-def extract_incident_fields_openai(transcript: str) -> Optional[Dict[str, Any]]:
+def extract_incident_fields_primary(transcript: str) -> Optional[Dict[str, Any]]:
     """
     Extract incident fields using OpenAI with structured output.
     
@@ -28,7 +28,7 @@ def extract_incident_fields_openai(transcript: str) -> Optional[Dict[str, Any]]:
         Dictionary with structured incident fields or None if extraction fails
     """
     if not client:
-        logger.warning("OpenAI client not initialized - API key missing")
+        logger.warning("primary LLM client not initialized - API key missing")
         return None
     
     try:
@@ -134,21 +134,21 @@ Return JSON with these exact fields:
                 extracted.setdefault("normalized_text", transcript)
                 extracted.setdefault("confidence", 0.8)
                 
-                logger.info(f"OpenAI extraction successful: event_type={extracted.get('event_type')}")
+                logger.info(f"Extraction via LLM (openai) successful: event_type={extracted.get('event_type')}")
                 return extracted
             else:
-                logger.error("No JSON found in OpenAI response")
+                logger.error("No JSON found in primary LLM response")
                 return None
                 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenAI JSON response: {e}\nResponse: {response_text}")
+            logger.error(f"Failed to parse primary LLM JSON response: {e}\nResponse: {response_text}")
             return None
         
     except RateLimitError:
-        logger.warning("OpenAI rate limit exceeded")
+        logger.warning("primary LLM rate limit exceeded")
         return None
     except APIError as e:
-        logger.error(f"OpenAI API error: {e}")
+        logger.error(f"primary LLM API error: {e}")
         return None
     except Exception as e:
         logger.error(f"Unexpected error in OpenAI extraction: {e}")

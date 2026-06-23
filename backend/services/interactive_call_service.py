@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from services.extraction_service import extract_incident_fields
 from services.geocoding_service import geocode_location
 from services.incident_service import generate_incident_object
-from services.llm_extraction_service import extract_incident_fields_llm
+from services.llm_extraction_service_fallback import extract_incident_fields_fallback
 from services.location_service import resolve_location
 from services.module_dispatch_service import dispatch_incident_to_modules
 from services.severity_service import assess_severity
@@ -16,8 +16,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-USE_LLM_EXTRACTION = os.getenv("USE_LLM_EXTRACTION", "false").lower() == "true"
+LLM_FALLBACK_API_KEY = os.getenv("LLM_FALLBACK_API_KEY")
+USE_LLM_EXTRACTION_FALLBACK = os.getenv("USE_LLM_EXTRACTION_FALLBACK", "false").lower() == "true"
 MISSING_EVENT_TYPE_QUESTION = (
     "What happened exactly? Was it an accident, breakdown, congestion, road block, fire, or medical emergency?"
 )
@@ -126,14 +126,14 @@ def _complete_incident_response(merged: dict, transcript: str) -> dict:
 def _process_incident_pipeline(transcript: str) -> dict:
     extraction_method = "rule_based_fallback"
 
-    if USE_LLM_EXTRACTION and GEMINI_API_KEY:
+    if USE_LLM_EXTRACTION_FALLBACK and LLM_FALLBACK_API_KEY:
         try:
-            extracted = extract_incident_fields_llm(transcript)
+            extracted = extract_incident_fields_fallback(transcript)
             if extracted:
                 extracted["extraction_method"] = "llm"
                 return extracted
         except Exception as e:
-            logger.warning(f"Gemini extraction failed for interactive turn: {e}")
+            logger.warning(f"Fallback LLM extraction failed for interactive turn: {e}")
 
     extracted = extract_incident_fields(transcript)
     extracted["extraction_method"] = extraction_method

@@ -16,21 +16,21 @@ logger = get_logger(__name__)
 def chat_with_incident(question: str, incident: dict[str, Any]) -> dict[str, str]:
     """Answer a natural-language question about a prepared incident."""
     incident = incident or {}
-    use_llm_chat = os.getenv("USE_LLM_CHAT", "false").lower() == "true"
+    use_llm_chat = os.getenv("USE_LLM_CHAT_FALLBACK", "false").lower() == "true"
 
     if use_llm_chat:
         try:
-            return _answer_with_gemini(question, incident)
+            return _answer_with_fallback_llm(question, incident)
         except Exception as exc:
-            log_event(logger, 30, "chat_provider_failed", "Gemini chat failed", error=str(exc))
+            log_event(logger, 30, "chat_provider_failed", "Fallback LLM chat failed", error=str(exc))
 
     return _answer_rule_based(question, incident)
 
 
-def _answer_with_gemini(question: str, incident: dict[str, Any]) -> dict[str, str]:
-    model_name = os.getenv("GEMINI_CHAT_MODEL", "gemini-1.5-mini")
+def _answer_with_fallback_llm(question: str, incident: dict[str, Any]) -> dict[str, str]:
+    model_name = os.getenv("LLM_FALLBACK_CHAT_MODEL", "gemini-1.5-mini")
     try:
-        model = get_model_registry().get_gemini_model(model_name)
+        model = get_model_registry().get_fallback_llm_model(model_name)
     except ConfigurationError:
         raise
 
@@ -47,7 +47,7 @@ def _answer_with_gemini(question: str, incident: dict[str, Any]) -> dict[str, st
     answer_text = getattr(response, "text", None)
     answer = answer_text.strip() if isinstance(answer_text, str) else ""
     if not answer:
-        raise RuntimeError("Gemini returned no answer")
+        raise RuntimeError("Fallback LLM returned no answer")
     return {"answer": answer, "source": "llm"}
 
 
