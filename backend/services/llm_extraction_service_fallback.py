@@ -57,8 +57,8 @@ Important:
 2. Be accurate and extract what is actually mentioned.
 3. If unsure, use "unknown" or null. Do not fabricate information.
 4. Keep JSON compact and valid.
-5. Corridor (road_name) and Location/Junction (landmark/junction) must not be identical; Location/Junction should be the more specific landmark, junction, or sub-location mentioned, not a repeat of the corridor name.
-6. If event_cause is not explicitly labeled but can be inferred from context (e.g. "tyre burst", "engine failure"), extract it. Otherwise, leave it null."""
+5. Corridor (road_name) and Location/Junction (landmark/junction) must not be identical. If no specific junction, landmark, or sub-location is mentioned in the text, leave landmark/junction BLANK (null). DO NOT fallback to the corridor name.
+6. Infer event_cause from descriptive context even if not explicitly labeled (e.g. "lane obstruction" if text says "blocking two lanes", or "tyre burst"). Attempt a reasonable inferred cause rather than leaving blank, unless truly no causal info exists."""
 
 
 def extract_incident_fields_fallback(transcript: str) -> Optional[dict]:

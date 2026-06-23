@@ -638,81 +638,128 @@ export default function NewIncidentPage() {
                   </div>
                 </div>
 
-                {inputMode === 'dictation' && (
+                {inputMode === 'manual' ? (
+                  <div className="form-group" style={{ marginTop: '8px' }}>
+                    <label htmlFor="transcript" className="form-label" style={{ display: 'none' }}>
+                      Incident Description
+                    </label>
+                    <textarea
+                      id="transcript"
+                      className="textarea"
+                      value={transcript}
+                      onChange={e => setTranscript(e.target.value)}
+                      placeholder="Describe the incident in detail (e.g., Heavy Vehicle Breakdown on Tumkur Road near Peenya Junction at 8:45 AM)..."
+                      rows={5}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        fontSize: '14px',
+                        lineHeight: '1.6',
+                        boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
+                        resize: 'vertical'
+                      }}
+                    />
+                  </div>
+                ) : (
                   <div style={{ 
                     display: 'flex', 
                     flexDirection: 'column', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: '16px', 
-                    padding: '32px 24px',
-                    background: '#F8FAF6',
+                    background: '#ffffff',
                     borderRadius: '12px',
-                    border: '1px dashed #cce885',
-                    marginTop: '8px'
+                    border: '1px solid #E2E8F0',
+                    marginTop: '8px',
+                    overflow: 'hidden'
                   }}>
-                    <div style={{ position: 'relative' }}>
-                      {isListening && (
-                        <div style={{
-                          position: 'absolute',
-                          top: -8, left: -8, right: -8, bottom: -8,
-                          borderRadius: '50%',
-                          background: '#B9E63F',
-                          opacity: 0.2,
-                          animation: 'pulse 1.5s infinite'
-                        }} />
-                      )}
-                      <button
-                        id="mic-toggle-btn"
-                        type="button"
-                        className={`mic-button ${isListening ? 'recording' : ''}`}
-                        onClick={toggleListening}
-                        title={isListening ? 'Stop recording' : 'Start recording'}
-                        style={{ position: 'relative', zIndex: 1, border: 'none', background: isListening ? '#E53E3E' : '#111111' }}
-                      >
-                        {isListening ? <MicOff size={24} color="#fff" /> : <Mic size={24} color="#fff" />}
-                      </button>
-                    </div>
-                    
-                    <div style={{ textAlign: 'center' }}>
-                      <span style={{ fontSize: '13px', color: isListening ? '#E53E3E' : 'var(--color-text-secondary)', fontWeight: 600 }}>
-                        {isListening ? 'Listening...' : 'Click to start dictation'}
-                      </span>
-                      {isListening && (
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '4px' }}>
-                          Speak your incident report clearly.
+                    <div style={{
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      padding: '32px 24px',
+                      background: isListening ? '#FAFCF8' : 'transparent',
+                      borderBottom: transcript ? '1px solid #E2E8F0' : 'none',
+                      transition: 'background 0.3s'
+                    }}>
+                      <div style={{ position: 'relative' }}>
+                        {isListening && (
+                          <div style={{
+                            position: 'absolute',
+                            top: -8, left: -8, right: -8, bottom: -8,
+                            borderRadius: '50%',
+                            background: '#B9E63F',
+                            opacity: 0.2,
+                            animation: 'pulse 1.5s infinite'
+                          }} />
+                        )}
+                        <button
+                          id="mic-toggle-btn"
+                          type="button"
+                          className={`mic-button ${isListening ? 'recording' : ''}`}
+                          onClick={toggleListening}
+                          title={isListening ? 'Stop recording' : 'Start recording'}
+                          style={{ 
+                            position: 'relative', 
+                            zIndex: 1, 
+                            border: '1px solid ' + (isListening ? '#E53E3E' : '#E2E8F0'), 
+                            background: isListening ? '#111111' : '#ffffff',
+                            color: isListening ? '#E53E3E' : 'var(--color-text-secondary)',
+                            width: '48px', height: '48px',
+                            borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', transition: 'all 0.2s',
+                            boxShadow: isListening ? 'none' : '0 2px 4px rgba(0,0,0,0.05)'
+                          }}
+                        >
+                          {isListening ? <MicOff size={20} color="#E53E3E" /> : <Mic size={20} />}
+                        </button>
+                      </div>
+                      
+                      <div style={{ textAlign: 'center', marginTop: '16px' }}>
+                        <span style={{ fontSize: '13px', color: isListening ? '#688c0a' : 'var(--color-text-secondary)', fontWeight: 600 }}>
+                          {isListening ? 'Listening...' : 'Click to start dictation'}
+                        </span>
+                      </div>
+                      
+                      {webSpeechError && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', padding: '6px 12px', background: '#FEF2F2', borderRadius: '6px', border: '1px solid #FECACA' }}>
+                          <span style={{ fontSize: '12px', color: '#B91C1C', fontWeight: 500 }}>Connection issue — please check your network and try again.</span>
                         </div>
                       )}
                     </div>
-                    {webSpeechError && <span style={{ fontSize: '11px', color: '#E53E3E' }}>{webSpeechError}</span>}
+
+                    {transcript && (
+                      <div style={{ padding: '16px', background: '#FAFCF8' }}>
+                        <textarea
+                          id="transcript"
+                          className="textarea"
+                          value={transcript}
+                          onChange={e => setTranscript(e.target.value)}
+                          placeholder="Live transcript..."
+                          rows={4}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: '0',
+                            fontSize: '14px',
+                            lineHeight: '1.6',
+                            resize: 'none',
+                            outline: 'none',
+                            boxShadow: 'none',
+                            width: '100%',
+                            color: 'var(--color-text)'
+                          }}
+                          ref={(el) => {
+                            if (el && isListening) {
+                              el.scrollTop = el.scrollHeight;
+                            }
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
-
-
-                {/* Transcript */}
-                <div className="form-group" style={{ marginTop: '8px' }}>
-                  <label htmlFor="transcript" className="form-label" style={{ display: 'none' }}>
-                    {inputMode === 'manual' ? 'Incident Description' : 'Live Transcript'}
-                  </label>
-                  <textarea
-                    id="transcript"
-                    className="textarea"
-                    value={transcript}
-                    onChange={e => setTranscript(e.target.value)}
-                    placeholder={inputMode === 'manual' ? 'Describe the incident in detail (e.g., Heavy Vehicle Breakdown on Tumkur Road near Peenya Junction at 8:45 AM)...' : 'Transcript will appear here...'}
-                    rows={4}
-                    style={{
-                      background: '#F8FAF6',
-                      border: '1px solid #E2E8F0',
-                      borderRadius: '12px',
-                      padding: '16px',
-                      fontSize: '14px',
-                      lineHeight: '1.6',
-                      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
-                      resize: 'none'
-                    }}
-                  />
-                </div>
               </div>
 
               {/* Extracted Fields */}
