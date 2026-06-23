@@ -165,8 +165,10 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
 
     let hoverTimeout: ReturnType<typeof setTimeout>;
 
-    const onMouseMove = (e: maplibregl.MapMouseEvent) => {
-      if (!mapContainer.current) return;
+  const onMouseMove = (e: maplibregl.MapMouseEvent) => {
+      // Fix: Capture a local immutable reference to satisfy TypeScript build strictness
+      const container = mapContainer.current;
+      if (!container) return;
 
       clearTimeout(hoverTimeout);
       hoverTimeout = setTimeout(() => {
@@ -181,7 +183,6 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
         const props = features[0].properties;
         const totalInCluster = features.length;
         
-        // Build map metrics details dynamically
         const categoryLabel = props.incident_type || 'Unspecified';
         const locationName = props.corridor || 'Bengaluru Corridor';
 
@@ -207,16 +208,17 @@ export function IncidentDensityMap({ incidents = [], height = '480px' }: Inciden
                 <span style="font-size:10px; font-weight:700; color:#FF3366; background: rgba(255,51,102,0.15); padding: 2px 6px; border-radius: 4px;">
                   ${categoryLabel}
                 </span>
-                {totalInCluster > 1 ? (
+                ${totalInCluster > 1 ? `
                   <span style="font-size:10px; color:#A0A0A0;">
                     +${totalInCluster - 1} nearby
                   </span>
-                ) : ''}
+                ` : ''}
               </div>
             </div>
           `;
 
-          const rect = mapContainer.current.getBoundingClientRect();
+          // Using the immutable local variable here prevents compiler build worker crashes
+          const rect = container.getBoundingClientRect();
           let left = rect.left + e.point.x + 15;
           let top = rect.top + e.point.y + 15;
 
